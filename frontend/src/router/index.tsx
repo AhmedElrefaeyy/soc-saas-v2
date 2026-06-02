@@ -47,6 +47,9 @@ const InstallerPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("@/features/settings/SettingsPage").then((m) => ({ default: m.SettingsPage }))
 );
+const RulesPage = lazy(() =>
+  import("@/features/rules/RulesPage").then((m) => ({ default: m.RulesPage }))
+);
 
 // ─── Loading fallback ─────────────────────────────────────────────────────────
 
@@ -86,6 +89,7 @@ const router = createBrowserRouter([
       { path: "investigations/:id",     element: <S><InvestigationDetailPage /></S> },
       { path: "events",           element: <S><EventsPage /></S> },
       { path: "hunt",             element: <S><HuntPage /></S> },
+      { path: "rules",            element: <S><RulesPage /></S> },
       { path: "graph",            element: <S><GraphPage /></S> },
       { path: "agents",           element: <S><AgentsPage /></S> },
       { path: "copilot",          element: <S><CopilotPage /></S> },

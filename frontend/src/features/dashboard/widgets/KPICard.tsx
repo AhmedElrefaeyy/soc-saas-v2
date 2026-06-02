@@ -76,16 +76,25 @@ export interface KPICardProps {
 
 const VARIANT_STYLES: Record<NonNullable<KPICardProps["colorVariant"]>, string> = {
   default:  "border-border",
-  accent:   "border-accent/30",
+  accent:   "border-neural-600/30",
   critical: "border-severity-critical/40",
   high:     "border-severity-high/30",
   medium:   "border-severity-medium/30",
   low:      "border-severity-low/30",
 };
 
+const VARIANT_GLOW: Record<NonNullable<KPICardProps["colorVariant"]>, string> = {
+  default:  "",
+  accent:   "0 0 20px rgba(139,92,246,0.12)",
+  critical: "0 0 20px rgba(248,113,113,0.12)",
+  high:     "0 0 16px rgba(251,146,60,0.1)",
+  medium:   "",
+  low:      "0 0 16px rgba(52,211,153,0.08)",
+};
+
 const VARIANT_ICON_BG: Record<NonNullable<KPICardProps["colorVariant"]>, string> = {
   default:  "bg-bg-subtle text-text-muted",
-  accent:   "bg-accent/10 text-accent",
+  accent:   "bg-neural-600/15 text-neural-400",
   critical: "bg-severity-critical/10 text-severity-critical",
   high:     "bg-severity-high/10 text-severity-high",
   medium:   "bg-severity-medium/10 text-severity-medium",
@@ -121,11 +130,12 @@ export function KPICard({
     <button
       onClick={onClick}
       className={cn(
-        "card p-4 text-left w-full transition-colors",
+        "card p-4 text-left w-full transition-all",
         "hover:bg-bg-elevated/80 hover:border-border-strong",
         VARIANT_STYLES[colorVariant],
         onClick && "cursor-pointer"
       )}
+      style={VARIANT_GLOW[colorVariant] ? { boxShadow: VARIANT_GLOW[colorVariant] } : undefined}
     >
       <div className="flex items-start justify-between mb-3">
         <div className={cn("w-8 h-8 rounded-md flex items-center justify-center flex-shrink-0", VARIANT_ICON_BG[colorVariant])}>

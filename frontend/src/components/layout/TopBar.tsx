@@ -60,8 +60,11 @@ function UserMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-2 text-sm text-text-secondary hover:text-text-primary transition-colors rounded px-1.5 py-1 hover:bg-bg-subtle">
-          <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-xs font-medium text-accent">{initial}</span>
+          <div
+            className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 text-xs font-semibold text-white"
+            style={{ background: "linear-gradient(135deg, #7C3AED, #06B6D4)" }}
+          >
+            {initial}
           </div>
           <span className="hidden md:inline max-w-[120px] truncate">{displayName}</span>
           <ChevronDown className="w-3.5 h-3.5 text-text-muted" />

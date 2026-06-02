@@ -2,22 +2,22 @@ import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   AlertTriangle,
-  Search,
-  Server,
-  Settings,
-  Users,
   ShieldCheck,
-  Activity,
-  FileSearch,
-  KeyRound,
-  Network,
+  Database,
+  Crosshair,
+  BookOpen,
+  Server,
   Brain,
+  Settings,
   ChevronLeft,
   ChevronRight,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUIStore } from "@/stores/uiStore";
+import { useAuthStore } from "@/stores/authStore";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { LogoFull, LogoIcon } from "@/components/ui/Logo";
 
 interface NavItem {
   label: string;
@@ -34,90 +34,88 @@ const NAV_SECTIONS: NavSection[] = [
   {
     title: "Operations",
     items: [
-      { label: "Overview",      icon: LayoutDashboard, to: "/dashboard" },
-      { label: "Alerts",        icon: AlertTriangle,   to: "/alerts" },
-      { label: "Investigations",icon: ShieldCheck,     to: "/investigations" },
+      { label: "Dashboard",       icon: LayoutDashboard, to: "/dashboard" },
+      { label: "Alerts",          icon: AlertTriangle,   to: "/alerts" },
+      { label: "Investigations",  icon: ShieldCheck,     to: "/investigations" },
     ],
   },
   {
     title: "Investigate",
     items: [
-      { label: "Log Explorer",  icon: FileSearch, to: "/events" },
-      { label: "Threat Hunt",   icon: Search,     to: "/hunt" },
-      { label: "Graph Analysis",icon: Network,    to: "/graph" },
+      { label: "Events",          icon: Database,   to: "/events" },
+      { label: "Threat Hunt",     icon: Crosshair,  to: "/hunt" },
+      { label: "Detection Rules", icon: BookOpen,   to: "/rules" },
     ],
   },
   {
-    title: "AI",
+    title: "AI & Response",
     items: [
-      { label: "AI Copilot",    icon: Brain,  to: "/copilot" },
-    ],
-  },
-  {
-    title: "Response",
-    items: [
-      { label: "Agents",        icon: Server,   to: "/agents" },
-      { label: "Installer",     icon: KeyRound, to: "/installer" },
+      { label: "AI Copilot",      icon: Brain,   to: "/copilot" },
+      { label: "Agents",          icon: Server,  to: "/agents" },
     ],
   },
   {
     title: "Platform",
     items: [
-      { label: "Team",          icon: Users,    to: "/team" },
-      { label: "Settings",      icon: Settings, to: "/settings" },
+      { label: "Settings",        icon: Settings, to: "/settings" },
     ],
   },
 ];
 
 export function Sidebar() {
-  const collapsed = useUIStore((s) => s.sidebarCollapsed);
-  const toggleSidebar = useUIStore((s) => s.toggleSidebar);
+  const collapsed   = useUIStore((s) => s.sidebarCollapsed);
+  const toggle      = useUIStore((s) => s.toggleSidebar);
+  const user        = useAuthStore((s) => s.user);
+  const clearAuth   = useAuthStore((s) => s.clearAuth);
+
+  const initials = user?.full_name
+    ? user.full_name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()
+    : (user?.email?.[0] ?? "U").toUpperCase();
 
   return (
     <aside
       className={cn(
-        "flex-shrink-0 flex flex-col h-full bg-bg-surface border-r border-border transition-all duration-200",
-        collapsed ? "w-[56px]" : "w-[220px]"
+        "relative flex-shrink-0 flex flex-col h-full border-r transition-all duration-200",
+        collapsed ? "w-16" : "w-60"
       )}
+      style={{ background: "#06060F", borderColor: "rgba(139,92,246,0.12)" }}
     >
-      {/* Logo + collapse toggle */}
-      <div className="flex items-center h-14 border-b border-border px-3 flex-shrink-0">
-        <div
-          className={cn(
-            "flex items-center gap-2.5 flex-1 min-w-0",
-            collapsed && "justify-center"
-          )}
-        >
-          <div className="w-7 h-7 rounded-md bg-accent/10 border border-accent/30 flex items-center justify-center flex-shrink-0">
-            <Activity className="w-4 h-4 text-accent" />
+      {/* Logo */}
+      <div
+        className="flex items-center h-14 px-3 flex-shrink-0 border-b"
+        style={{ borderColor: "rgba(139,92,246,0.12)" }}
+      >
+        {collapsed ? (
+          <div className="flex items-center justify-center w-full">
+            <LogoIcon size={30} />
           </div>
-          {!collapsed && (
-            <span className="text-sm font-semibold text-text-primary truncate">
-              SOC Platform
-            </span>
-          )}
-        </div>
-        {!collapsed && (
-          <button
-            onClick={toggleSidebar}
-            className="ml-auto p-1 rounded text-text-muted hover:text-text-primary hover:bg-bg-subtle transition-colors flex-shrink-0"
-            aria-label="Collapse sidebar"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+        ) : (
+          <div className="flex items-center justify-between w-full">
+            <LogoFull size={30} />
+            <button
+              onClick={toggle}
+              className="p-1 rounded text-text-muted hover:text-text-primary transition-colors"
+              aria-label="Collapse sidebar"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          </div>
         )}
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-3 px-2">
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
         {NAV_SECTIONS.map((section) => (
-          <div key={section.title} className={cn("mb-4", collapsed && "mb-2")}>
+          <div key={section.title}>
             {!collapsed && (
-              <p className="px-3 mb-1 text-2xs font-semibold uppercase tracking-wider text-text-muted">
+              <p className="px-3 mb-1.5 text-2xs font-semibold uppercase tracking-widest"
+                style={{ color: "rgba(139,92,246,0.5)" }}>
                 {section.title}
               </p>
             )}
-            {collapsed && <div className="my-1 h-px bg-border mx-1" />}
+            {collapsed && (
+              <div className="my-2 h-px mx-2" style={{ background: "rgba(139,92,246,0.1)" }} />
+            )}
             <ul className="space-y-0.5">
               {section.items.map((item) => (
                 <li key={item.to}>
@@ -127,15 +125,21 @@ export function Sidebar() {
                         to={item.to}
                         className={({ isActive }) =>
                           cn(
-                            "flex items-center justify-center w-9 h-9 mx-auto rounded transition-colors",
+                            "flex items-center justify-center w-10 h-10 mx-auto rounded-lg transition-all duration-150",
                             isActive
-                              ? "bg-bg-subtle text-accent"
-                              : "text-text-muted hover:text-text-primary hover:bg-bg-subtle"
+                              ? "bg-neural-600/20 text-neural-400"
+                              : "text-text-muted hover:text-text-primary hover:bg-white/[0.04]"
                           )
                         }
                         aria-label={item.label}
                       >
-                        <item.icon className="w-4 h-4 flex-shrink-0" />
+                        {({ isActive }) => (
+                          <item.icon
+                            className={cn("w-[18px] h-[18px] flex-shrink-0",
+                              isActive && "drop-shadow-[0_0_6px_rgba(139,92,246,0.7)]"
+                            )}
+                          />
+                        )}
                       </NavLink>
                     </Tooltip>
                   ) : (
@@ -143,13 +147,24 @@ export function Sidebar() {
                       to={item.to}
                       className={({ isActive }) =>
                         cn(
-                          "sidebar-item",
-                          isActive && "sidebar-item-active text-text-primary bg-bg-subtle"
+                          "flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all duration-150",
+                          "border-l-2",
+                          isActive
+                            ? "bg-neural-600/15 border-neural-500 text-neural-400"
+                            : "border-transparent text-text-muted hover:text-text-primary hover:bg-white/[0.03]"
                         )
                       }
                     >
-                      <item.icon className="w-4 h-4 flex-shrink-0" />
-                      <span>{item.label}</span>
+                      {({ isActive }) => (
+                        <>
+                          <item.icon
+                            className={cn("w-4 h-4 flex-shrink-0",
+                              isActive && "drop-shadow-[0_0_6px_rgba(139,92,246,0.7)]"
+                            )}
+                          />
+                          <span>{item.label}</span>
+                        </>
+                      )}
                     </NavLink>
                   )}
                 </li>
@@ -159,25 +174,56 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* Footer */}
-      <div className="p-2 border-t border-border flex-shrink-0">
+      {/* Footer — user info + logout */}
+      <div
+        className="p-2 border-t flex-shrink-0"
+        style={{ borderColor: "rgba(139,92,246,0.12)" }}
+      >
         {collapsed ? (
-          <button
-            onClick={toggleSidebar}
-            className="flex items-center justify-center w-9 h-9 mx-auto rounded text-text-muted hover:text-text-primary hover:bg-bg-subtle transition-colors"
-            aria-label="Expand sidebar"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+          <div className="flex flex-col items-center gap-2">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+              style={{
+                background: "linear-gradient(135deg, #7C3AED, #06B6D4)",
+                color: "white",
+              }}
+            >
+              {initials}
+            </div>
+            <button
+              onClick={toggle}
+              className="flex items-center justify-center w-8 h-8 rounded text-text-muted hover:text-text-primary hover:bg-white/[0.04] transition-colors"
+              aria-label="Expand sidebar"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         ) : (
-          <div className="flex items-center gap-2 px-2 py-1.5">
-            <div className="w-6 h-6 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
-              <span className="text-xs font-medium text-accent">U</span>
+          <div className="flex items-center gap-2.5 px-2 py-2 rounded-lg hover:bg-white/[0.03] group transition-colors">
+            <div
+              className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold flex-shrink-0"
+              style={{
+                background: "linear-gradient(135deg, #7C3AED, #06B6D4)",
+                color: "white",
+              }}
+            >
+              {initials}
             </div>
-            <div className="min-w-0">
-              <p className="text-xs font-medium text-text-primary truncate">User</p>
-              <p className="text-2xs text-text-muted truncate">Analyst</p>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-medium text-text-primary truncate">
+                {user?.full_name ?? user?.email ?? "User"}
+              </p>
+              <p className="text-2xs text-text-muted truncate capitalize">
+                {user?.roles?.[0] ?? "analyst"}
+              </p>
             </div>
+            <button
+              onClick={clearAuth}
+              className="opacity-0 group-hover:opacity-100 p-1 rounded text-text-muted hover:text-danger transition-all"
+              title="Sign out"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
           </div>
         )}
       </div>

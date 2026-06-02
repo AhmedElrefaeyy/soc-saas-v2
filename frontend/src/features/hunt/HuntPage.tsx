@@ -1,19 +1,39 @@
-import { Search } from "lucide-react";
-import { EmptyState } from "@/components/ui/EmptyState";
+import { Crosshair, Sparkles } from "lucide-react";
 
 export function HuntPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-text-primary">Threat Hunt</h1>
-        <p className="text-sm text-text-muted mt-1">Proactively hunt for threats in your environment</p>
+        <h1 className="page-title">Threat Hunt</h1>
+        <p className="text-sm text-text-muted mt-1">Proactively hunt for adversaries in your environment</p>
       </div>
 
-      <EmptyState
-        icon={<Search className="w-8 h-8" />}
-        title="No hunt sessions"
-        description="Start a new hunt to search for indicators of compromise."
-      />
+      <div
+        className="rounded-2xl p-12 flex flex-col items-center justify-center text-center border"
+        style={{
+          background: "rgba(8,8,16,0.6)",
+          borderColor: "rgba(139,92,246,0.15)",
+          borderStyle: "dashed",
+        }}
+      >
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+          style={{ background: "rgba(139,92,246,0.1)", border: "1px solid rgba(139,92,246,0.2)" }}
+        >
+          <Crosshair className="w-6 h-6 text-neural-400" />
+        </div>
+        <h2 className="font-display text-lg font-semibold text-text-primary mb-2">
+          Hunt Sessions Coming Soon
+        </h2>
+        <p className="text-sm text-text-muted max-w-md leading-relaxed mb-6">
+          Build and execute hunting queries against your event data. Search for indicators
+          of compromise, anomalous behaviors, and threat patterns.
+        </p>
+        <div className="flex items-center gap-2 text-xs text-neural-400">
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>AI-assisted hunting queries powered by NEURASHIELD</span>
+        </div>
+      </div>
     </div>
   );
 }

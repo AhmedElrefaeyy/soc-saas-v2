@@ -1,15 +1,18 @@
 import { useState, FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { ShieldCheck, Eye, EyeOff, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Eye, EyeOff, AlertCircle, CheckCircle2, Circle } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { authApi } from "@/api/auth";
 import { cn, extractApiError } from "@/lib/utils";
+import { LogoFull } from "@/components/ui/Logo";
 
 function PasswordRule({ met, label }: { met: boolean; label: string }) {
   return (
-    <div className={cn("flex items-center gap-1.5 text-xs", met ? "text-status-online" : "text-text-muted")}>
-      <CheckCircle2 className="w-3 h-3" />
+    <div className={cn("flex items-center gap-1.5 text-xs transition-colors", met ? "text-cyber-400" : "text-text-muted")}>
+      {met
+        ? <CheckCircle2 className="w-3 h-3 flex-shrink-0" />
+        : <Circle className="w-3 h-3 flex-shrink-0" />}
       {label}
     </div>
   );
@@ -27,10 +30,10 @@ export function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
 
   const rules = {
-    length: password.length >= 8,
+    length:    password.length >= 8,
     uppercase: /[A-Z]/.test(password),
     lowercase: /[a-z]/.test(password),
-    digit: /\d/.test(password),
+    digit:     /\d/.test(password),
   };
   const allRulesMet = Object.values(rules).every(Boolean);
 
@@ -39,7 +42,6 @@ export function RegisterPage() {
     if (!allRulesMet) return;
     setError(null);
     setIsLoading(true);
-
     try {
       const tokens = await authApi.register({ email, password, full_name: fullName });
       setAuth(
@@ -56,33 +58,61 @@ export function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen bg-bg-base flex items-center justify-center p-4">
+    <div
+      className="min-h-screen flex items-center justify-center p-4 bg-grid"
+      style={{ background: "#04040A" }}
+    >
+      {/* Ambient glow blobs */}
+      <div
+        className="fixed top-0 left-1/4 w-[500px] h-[500px] rounded-full pointer-events-none"
+        style={{
+          background: "radial-gradient(circle, rgba(139,92,246,0.08) 0%, transparent 70%)",
+          filter: "blur(40px)",
+        }}
+      />
+      <div
+        className="fixed bottom-0 right-1/4 w-[400px] h-[400px] rounded-full pointer-events-none"
+        style={{
+          background: "radial-gradient(circle, rgba(6,182,212,0.06) 0%, transparent 70%)",
+          filter: "blur(40px)",
+        }}
+      />
+
       <motion.div
-        initial={{ opacity: 0, y: 16 }}
+        initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.2, ease: "easeOut" }}
-        className="w-full max-w-[400px]"
+        transition={{ duration: 0.25, ease: "easeOut" }}
+        className="relative w-full max-w-[400px]"
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 mb-8">
-          <div className="w-9 h-9 rounded-lg bg-accent/10 border border-accent/30 flex items-center justify-center">
-            <ShieldCheck className="w-5 h-5 text-accent" />
-          </div>
-          <span className="text-lg font-semibold text-text-primary">SOC Platform</span>
+        <div className="flex justify-center mb-8">
+          <LogoFull size={40} showSubtitle />
         </div>
 
         {/* Card */}
-        <div className="card p-6">
+        <div
+          className="rounded-2xl p-7 border"
+          style={{
+            background: "rgba(8,8,16,0.9)",
+            borderColor: "rgba(139,92,246,0.2)",
+            boxShadow: "0 0 40px rgba(139,92,246,0.1), inset 0 1px 0 rgba(255,255,255,0.04)",
+            backdropFilter: "blur(12px)",
+          }}
+        >
           <div className="mb-6">
-            <h1 className="text-xl font-semibold text-text-primary mb-1">Create account</h1>
-            <p className="text-sm text-text-secondary">Start monitoring your security operations</p>
+            <h1 className="font-display text-xl font-bold text-text-primary mb-1">Create account</h1>
+            <p className="text-sm text-text-muted">Deploy your AI-powered SOC in minutes</p>
           </div>
 
           {error && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
-              className="flex items-start gap-2.5 p-3 mb-4 rounded bg-severity-critical/10 border border-severity-critical/20"
+              className="flex items-start gap-2.5 p-3 mb-4 rounded-lg"
+              style={{
+                background: "rgba(248,113,113,0.08)",
+                border: "1px solid rgba(248,113,113,0.25)",
+              }}
             >
               <AlertCircle className="w-4 h-4 text-severity-critical mt-0.5 flex-shrink-0" />
               <p className="text-sm text-severity-critical">{error}</p>
@@ -152,25 +182,25 @@ export function RegisterPage() {
               </div>
 
               {password && (
-                <div className="mt-2 grid grid-cols-2 gap-1">
-                  <PasswordRule met={rules.length} label="8+ characters" />
+                <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+                  <PasswordRule met={rules.length}    label="8+ characters" />
                   <PasswordRule met={rules.uppercase} label="Uppercase letter" />
                   <PasswordRule met={rules.lowercase} label="Lowercase letter" />
-                  <PasswordRule met={rules.digit} label="Number" />
+                  <PasswordRule met={rules.digit}     label="Number" />
                 </div>
               )}
             </div>
 
             <button
               type="submit"
-              className={cn("btn-primary w-full justify-center", (isLoading || !allRulesMet) && "opacity-70 cursor-not-allowed")}
+              className={cn("btn-primary w-full mt-2", (isLoading || !allRulesMet) && "opacity-60 cursor-not-allowed")}
               disabled={isLoading || !allRulesMet}
             >
               {isLoading ? (
-                <span className="flex items-center gap-2">
+                <>
                   <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                   Creating account…
-                </span>
+                </>
               ) : (
                 "Create account"
               )}
@@ -178,9 +208,9 @@ export function RegisterPage() {
           </form>
         </div>
 
-        <p className="text-center text-sm text-text-muted mt-4">
+        <p className="text-center text-sm text-text-muted mt-5">
           Already have an account?{" "}
-          <Link to="/login" className="text-accent hover:text-accent-hover transition-colors">
+          <Link to="/login" className="text-neural-400 hover:text-neural-500 transition-colors font-medium">
             Sign in
           </Link>
         </p>

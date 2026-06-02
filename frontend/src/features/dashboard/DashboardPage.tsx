@@ -1,4 +1,3 @@
-import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboardStore";
 import { useDashboardRealtime } from "./hooks/useDashboardRealtime";
@@ -12,8 +11,6 @@ import { AIInvestigationWidget } from "./widgets/AIInvestigationWidget";
 import type { DashboardTimeRange } from "./types/dashboard";
 import { TIME_RANGE_LABELS } from "./types/dashboard";
 
-// ─── Time range selector ──────────────────────────────────────────────────────
-
 const TIME_RANGES: DashboardTimeRange[] = [
   "last_15m", "last_1h", "last_6h", "last_24h", "last_7d",
 ];
@@ -26,17 +23,31 @@ function TimeRangeSelector({
   onChange: (v: DashboardTimeRange) => void;
 }) {
   return (
-    <div className="flex items-center gap-1 rounded-lg border border-border bg-bg-surface p-0.5">
+    <div
+      className="flex items-center gap-0.5 rounded-lg p-0.5"
+      style={{
+        background: "rgba(14,14,28,0.8)",
+        border: "1px solid rgba(139,92,246,0.15)",
+      }}
+    >
       {TIME_RANGES.map((range) => (
         <button
           key={range}
           onClick={() => onChange(range)}
           className={cn(
-            "px-2.5 py-1 text-xs rounded-md transition-colors",
+            "px-2.5 py-1 text-xs rounded-md transition-all duration-150 font-medium",
             value === range
-              ? "bg-accent text-white font-medium"
-              : "text-text-muted hover:text-text-primary hover:bg-bg-subtle"
+              ? "text-white"
+              : "text-text-muted hover:text-text-primary hover:bg-white/[0.04]"
           )}
+          style={
+            value === range
+              ? {
+                  background: "linear-gradient(135deg, #7C3AED, #6366F1)",
+                  boxShadow: "0 0 12px rgba(139,92,246,0.4)",
+                }
+              : undefined
+          }
         >
           {TIME_RANGE_LABELS[range]}
         </button>
@@ -45,13 +56,10 @@ function TimeRangeSelector({
   );
 }
 
-// ─── Dashboard ────────────────────────────────────────────────────────────────
-
 export function DashboardPage() {
   const timeRange = useDashboardStore((s) => s.timeRange);
   const setTimeRange = useDashboardStore((s) => s.setTimeRange);
 
-  // Realtime updates — injects events into React Query cache
   useDashboardRealtime(timeRange);
 
   return (
@@ -59,16 +67,16 @@ export function DashboardPage() {
       {/* Page header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="page-title">Overview</h1>
-          <p className="text-sm text-text-secondary mt-0.5">
-            Security operations command center
+          <h1 className="page-title">Security Overview</h1>
+          <p className="text-sm text-text-muted mt-0.5">
+            Real-time threat intelligence command center
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-text-muted">
-            <Clock className="w-3.5 h-3.5" />
-            <span>Time range:</span>
-          </div>
+          <span className="flex items-center gap-1.5 text-xs text-status-online">
+            <span className="w-1.5 h-1.5 bg-status-online rounded-full animate-pulse" />
+            Live
+          </span>
           <TimeRangeSelector value={timeRange} onChange={setTimeRange} />
         </div>
       </div>
@@ -99,7 +107,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      {/* Row 4: AI operations (full width) */}
+      {/* Row 4: AI operations */}
       <div style={{ minHeight: 280 }}>
         <AIInvestigationWidget timeRange={timeRange} />
       </div>
