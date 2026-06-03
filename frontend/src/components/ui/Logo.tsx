@@ -5,7 +5,7 @@ interface LogoProps {
   className?: string
 }
 
-// Uses the actual logo PNG placed in /public/logo.png
+// Uses the actual logo PNG placed in /public/neurashield.png
 // size controls the HEIGHT of the icon; width scales automatically (img is square-ish)
 
 export function LogoIcon({
