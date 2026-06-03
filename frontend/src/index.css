@@ -349,7 +349,7 @@ input:-webkit-autofill:focus {
     align-items: center;
     gap: 7px;
     padding: 8px 18px;
-    border-radius: 8px;
+    border-radius: 10px;
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
@@ -381,7 +381,7 @@ input:-webkit-autofill:focus {
     color: #F87171;
   }
   .btn-danger:hover { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); }
-  .btn-sm { padding: 6px 14px; font-size: 12px; border-radius: 7px; }
+  .btn-sm { padding: 6px 14px; font-size: 12px; border-radius: 8px; }
 
   /* ─ Input ─ */
   .inp {
