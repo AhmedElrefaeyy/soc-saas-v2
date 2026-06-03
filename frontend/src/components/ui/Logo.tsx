@@ -153,16 +153,16 @@ export function LogoFull({ size = 44, className = '' }: LogoProps) {
 
 export function LogoCompact({ className = '' }: { className?: string }) {
   return (
-    <div className={className} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <LogoIcon size={46} />
+    <div className={className} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+      <LogoIcon size={62} />
       <span style={{
         fontFamily: "'Orbitron', sans-serif",
-        fontSize: 15,
+        fontSize: 18,
         fontWeight: 800,
-        letterSpacing: '0.20em',
+        letterSpacing: '0.16em',
         textTransform: 'uppercase' as const,
         lineHeight: 1,
-        background: 'linear-gradient(180deg, #E2E8F0 0%, #94A3B8 45%, #334155 100%)',
+        background: 'linear-gradient(180deg, #FFFFFF 0%, #CBD5E1 40%, #475569 100%)',
         WebkitBackgroundClip: 'text',
         WebkitTextFillColor: 'transparent',
         backgroundClip: 'text',
