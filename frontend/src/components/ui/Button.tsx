@@ -63,12 +63,12 @@ const buttonVariants = cva(
       },
 
       size: {
-        xs:       "h-[26px] px-2.5 text-[10px] tracking-[0.02em] rounded-[4px]",
-        sm:       "h-[30px] px-3   text-[11px] tracking-[0.01em] rounded-[5px]",
-        md:       "h-[34px] px-4   text-[12px] tracking-[0.01em] rounded-[5px]",
-        lg:       "h-[38px] px-5   text-[13px]                   rounded-[6px]",
-        icon:     "h-[32px] w-[32px] p-0 rounded-[5px]",
-        "icon-sm":"h-[28px] w-[28px] p-0 rounded-[4px]",
+        xs:       "h-[28px] px-3   text-[11px] tracking-[0.02em] rounded-[6px]",
+        sm:       "h-[34px] px-4   text-[12px] tracking-[0.01em] rounded-[7px]",
+        md:       "h-[38px] px-5   text-[13px] tracking-[0.01em] rounded-[7px]",
+        lg:       "h-[42px] px-6   text-[14px]                   rounded-[8px]",
+        icon:     "h-[36px] w-[36px] p-0 rounded-[7px]",
+        "icon-sm":"h-[30px] w-[30px] p-0 rounded-[6px]",
       },
     },
     defaultVariants: {

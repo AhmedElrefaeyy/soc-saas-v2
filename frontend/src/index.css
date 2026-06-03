@@ -347,15 +347,16 @@ input:-webkit-autofill:focus {
   .btn {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 14px;
-    border-radius: 6px;
-    font-size: 12px;
+    gap: 7px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     transition: all var(--fast);
     border: 1px solid transparent;
     white-space: nowrap;
+    line-height: 1;
   }
   .btn-primary {
     background: #0f2744;
@@ -380,7 +381,7 @@ input:-webkit-autofill:focus {
     color: #F87171;
   }
   .btn-danger:hover { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); }
-  .btn-sm { padding: 4px 10px; font-size: 11px; }
+  .btn-sm { padding: 6px 14px; font-size: 12px; border-radius: 7px; }
 
   /* ─ Input ─ */
   .inp {
