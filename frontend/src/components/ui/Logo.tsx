@@ -122,8 +122,8 @@ export function LogoFull({ size = 44, className = '' }: LogoProps) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <span style={{
           fontFamily: "'Orbitron', sans-serif",
-          fontSize: 14,
-          fontWeight: 700,
+          fontSize: 16,
+          fontWeight: 800,
           letterSpacing: '0.22em',
           textTransform: 'uppercase' as const,
           lineHeight: 1,
@@ -153,11 +153,11 @@ export function LogoFull({ size = 44, className = '' }: LogoProps) {
 export function LogoCompact({ className = '' }: { className?: string }) {
   return (
     <div className={className} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <LogoIcon size={32} />
+      <LogoIcon size={42} />
       <span style={{
         fontFamily: "'Orbitron', sans-serif",
-        fontSize: 14,
-        fontWeight: 700,
+        fontSize: 16,
+        fontWeight: 800,
         letterSpacing: '0.22em',
         textTransform: 'uppercase' as const,
         lineHeight: 1,
