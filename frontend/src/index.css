@@ -344,44 +344,74 @@ input:-webkit-autofill:focus {
   }
 
   /* ─ Buttons ─ */
+  /* Base — shared reset, also keeps backward-compat when .btn is used alone */
   .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 8px 18px;
-    border-radius: 10px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all var(--fast);
-    border: 1px solid transparent;
-    white-space: nowrap;
-    line-height: 1;
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 7px; padding: 8px 18px; border-radius: 10px;
+    font-size: 13px; font-weight: 600; line-height: 1;
+    cursor: pointer; transition: all var(--fast);
+    border: 1px solid transparent; white-space: nowrap;
   }
+
+  /* Each variant is SELF-CONTAINED — works with or without .btn */
   .btn-primary {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 7px; padding: 8px 18px; border-radius: 10px;
+    font-size: 13px; font-weight: 600; line-height: 1;
+    cursor: pointer; white-space: nowrap;
+    transition: all var(--fast);
     background: #0f2744;
-    border-color: rgba(59,130,246,0.25);
+    border: 1px solid rgba(59,130,246,0.35);
     color: #93C5FD;
   }
   .btn-primary:hover {
     background: #162f52;
-    border-color: rgba(96,165,250,0.4);
+    border-color: rgba(96,165,250,0.5);
     color: #BAD6FB;
-    box-shadow: 0 0 12px rgba(59,130,246,0.15);
+    box-shadow: 0 0 14px rgba(59,130,246,0.18);
   }
-  .btn-ghost {
+
+  .btn-secondary {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 7px; padding: 8px 18px; border-radius: 10px;
+    font-size: 13px; font-weight: 600; line-height: 1;
+    cursor: pointer; white-space: nowrap;
+    transition: all var(--fast);
     background: transparent;
-    border-color: transparent;
+    border: 1px solid rgba(255,255,255,0.08);
+    color: #8B95A7;
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: rgba(255,255,255,0.03);
+    border-color: rgba(255,255,255,0.14);
+    color: #D1D9E0;
+  }
+
+  .btn-ghost {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 7px; padding: 8px 18px; border-radius: 10px;
+    font-size: 13px; font-weight: 600; line-height: 1;
+    cursor: pointer; white-space: nowrap;
+    transition: all var(--fast);
+    background: transparent;
+    border: 1px solid transparent;
     color: #5C6373;
   }
   .btn-ghost:hover { background: rgba(255,255,255,0.03); color: #B8C0CC; }
+
   .btn-danger {
+    display: inline-flex; align-items: center; justify-content: center;
+    gap: 7px; padding: 8px 18px; border-radius: 10px;
+    font-size: 13px; font-weight: 600; line-height: 1;
+    cursor: pointer; white-space: nowrap;
+    transition: all var(--fast);
     background: transparent;
-    border-color: rgba(239,68,68,0.2);
+    border: 1px solid rgba(239,68,68,0.2);
     color: #F87171;
   }
   .btn-danger:hover { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.3); }
-  .btn-sm { padding: 6px 14px; font-size: 12px; border-radius: 8px; }
+
+  .btn-sm { padding: 5px 13px !important; font-size: 12px !important; border-radius: 8px !important; }
 
   /* ─ Input ─ */
   .inp {
