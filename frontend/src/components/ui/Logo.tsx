@@ -5,115 +5,141 @@ interface LogoProps {
   className?: string
 }
 
+// viewBox is 180×112 — wide to hold the horizontal light beams
+// ring center: cx=90 cy=56 r=38
+// beam zones: left 0→52, right 128→180
+// dots: top cy=5, bottom cy=107
+
 export function LogoIcon({ size = 44, className = '' }: { size?: number; className?: string }) {
+  const h = size * (112 / 180)
   return (
     <svg
       width={size}
-      height={size * (48 / 44)}
-      viewBox="0 0 44 48"
+      height={h}
+      viewBox="0 0 180 112"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
       <defs>
-        <filter id="ring-glow" x="-30%" y="-30%" width="160%" height="160%">
-          <feGaussianBlur stdDeviation="1.8" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
+        {/* Ring bloom — 4 levels of glow, outermost to tightest */}
+        <filter id="logo-bloom-xl" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="9" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
-        <filter id="dot-glow" x="-100%" y="-100%" width="300%" height="300%">
-          <feGaussianBlur stdDeviation="1.2" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
+        <filter id="logo-bloom-lg" x="-40%" y="-40%" width="180%" height="180%">
+          <feGaussianBlur stdDeviation="5" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
+        <filter id="logo-bloom-md" x="-25%" y="-25%" width="150%" height="150%">
+          <feGaussianBlur stdDeviation="2.5" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="logo-bloom-sm" x="-15%" y="-15%" width="130%" height="130%">
+          <feGaussianBlur stdDeviation="1.2" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+
+        {/* Dot glow */}
+        <filter id="logo-dot-bloom" x="-250%" y="-250%" width="600%" height="600%">
+          <feGaussianBlur stdDeviation="3" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+
+        {/* Beam soft-glow layer (blur only, no merge — creates soft halo) */}
+        <filter id="logo-beam-glow" x="-15%" y="-300%" width="130%" height="700%">
+          <feGaussianBlur stdDeviation="2.5"/>
+        </filter>
+
+        {/* Beam gradients — fade transparent→bright toward ring edge */}
+        <linearGradient id="logo-bl" x1="0" y1="0" x2="52" y2="0" gradientUnits="userSpaceOnUse">
+          <stop offset="0%"   stopColor="white" stopOpacity="0"/>
+          <stop offset="75%"  stopColor="white" stopOpacity="0.55"/>
+          <stop offset="100%" stopColor="white" stopOpacity="0.85"/>
+        </linearGradient>
+        <linearGradient id="logo-br" x1="128" y1="0" x2="180" y2="0" gradientUnits="userSpaceOnUse">
+          <stop offset="0%"   stopColor="white" stopOpacity="0.85"/>
+          <stop offset="25%"  stopColor="white" stopOpacity="0.55"/>
+          <stop offset="100%" stopColor="white" stopOpacity="0"/>
+        </linearGradient>
       </defs>
 
-      {/* Outer ring */}
-      <circle
-        cx="22"
-        cy="22"
-        r="16"
-        stroke="white"
-        strokeWidth="1.8"
-        fill="none"
-        opacity="0.9"
-        filter="url(#ring-glow)"
-      />
+      {/* ── LEFT BEAM ─────────────────────────────────────────────── */}
+      {/* soft glow layer */}
+      <rect x="0" y="50" width="52" height="12"
+        fill="url(#logo-bl)" opacity="0.4" filter="url(#logo-beam-glow)"/>
+      {/* bright core */}
+      <rect x="0" y="54.5" width="52" height="3"
+        fill="url(#logo-bl)" opacity="0.9"/>
 
-      {/* Top dot */}
-      <circle
-        cx="22"
-        cy="2"
-        r="1.8"
-        fill="white"
-        filter="url(#dot-glow)"
-      />
+      {/* ── RIGHT BEAM ────────────────────────────────────────────── */}
+      <rect x="128" y="50" width="52" height="12"
+        fill="url(#logo-br)" opacity="0.4" filter="url(#logo-beam-glow)"/>
+      <rect x="128" y="54.5" width="52" height="3"
+        fill="url(#logo-br)" opacity="0.9"/>
 
-      {/* Bottom dot */}
-      <circle
-        cx="22"
-        cy="42"
-        r="1.8"
-        fill="white"
-        filter="url(#dot-glow)"
-      />
+      {/* ── RING — outermost atmospheric halo ─────────────────────── */}
+      <circle cx="90" cy="56" r="38"
+        stroke="white" strokeWidth="28" fill="none"
+        opacity="0.03" filter="url(#logo-bloom-xl)"/>
+      {/* wide bloom */}
+      <circle cx="90" cy="56" r="38"
+        stroke="white" strokeWidth="14" fill="none"
+        opacity="0.07" filter="url(#logo-bloom-lg)"/>
+      {/* medium glow */}
+      <circle cx="90" cy="56" r="38"
+        stroke="white" strokeWidth="7" fill="none"
+        opacity="0.2" filter="url(#logo-bloom-md)"/>
+      {/* inner-edge glow (slightly inside — creates the inward-bright look) */}
+      <circle cx="90" cy="56" r="35"
+        stroke="white" strokeWidth="5" fill="none"
+        opacity="0.22" filter="url(#logo-bloom-md)"/>
+      {/* tight near-core glow */}
+      <circle cx="90" cy="56" r="38"
+        stroke="white" strokeWidth="2" fill="none"
+        opacity="0.6" filter="url(#logo-bloom-sm)"/>
+      {/* core line — thin, near-full opacity */}
+      <circle cx="90" cy="56" r="38"
+        stroke="white" strokeWidth="1.4" fill="none"
+        opacity="0.95"/>
 
-      {/* Left tick */}
-      <line
-        x1="2" y1="22" x2="5" y2="22"
-        stroke="white" strokeWidth="1" opacity="0.35"
-      />
+      {/* ── DOTS ──────────────────────────────────────────────────── */}
+      {/* top dot (13px above ring edge at cy=18) */}
+      <circle cx="90" cy="5"   r="2.5" fill="white" filter="url(#logo-dot-bloom)"/>
+      {/* bottom dot (13px below ring edge at cy=94) */}
+      <circle cx="90" cy="107" r="2.5" fill="white" filter="url(#logo-dot-bloom)"/>
 
-      {/* Right tick */}
-      <line
-        x1="39" y1="22" x2="42" y2="22"
-        stroke="white" strokeWidth="1" opacity="0.35"
-      />
-
-      {/* Center dot (very small, subtle) */}
-      <circle cx="22" cy="22" r="1" fill="white" opacity="0.4" />
+      {/* center point — very subtle */}
+      <circle cx="90" cy="56" r="1.4" fill="white" opacity="0.38"/>
     </svg>
   )
 }
 
 export function LogoFull({ size = 44, className = '' }: LogoProps) {
   return (
-    <div
-      className={className}
-      style={{ display: 'flex', alignItems: 'center', gap: 14 }}
-    >
+    <div className={className} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
       <LogoIcon size={size} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-        {/* Brand name */}
-        <span
-          style={{
-            fontFamily: "'Inter', system-ui, sans-serif",
-            fontSize: 15,
-            fontWeight: 700,
-            letterSpacing: '0.28em',
-            color: '#FFFFFF',
-            textTransform: 'uppercase' as const,
-            lineHeight: 1,
-          }}
-        >
+        <span style={{
+          fontFamily: "'Inter', system-ui, sans-serif",
+          fontSize: 15,
+          fontWeight: 700,
+          letterSpacing: '0.28em',
+          color: '#FFFFFF',
+          textTransform: 'uppercase' as const,
+          lineHeight: 1,
+        }}>
           NEURASHIELD
         </span>
-        {/* Subtitle */}
-        <span
-          style={{
-            fontFamily: "'Inter', system-ui, sans-serif",
-            fontSize: 7,
-            fontWeight: 400,
-            letterSpacing: '0.28em',
-            color: 'rgba(255,255,255,0.3)',
-            textTransform: 'uppercase' as const,
-            lineHeight: 1,
-          }}
-        >
+        <span style={{
+          fontFamily: "'Inter', system-ui, sans-serif",
+          fontSize: 7,
+          fontWeight: 400,
+          letterSpacing: '0.28em',
+          color: 'rgba(255,255,255,0.3)',
+          textTransform: 'uppercase' as const,
+          lineHeight: 1,
+        }}>
           AI POWERED SOC ANALYST PLATFORM
         </span>
       </div>
@@ -121,24 +147,18 @@ export function LogoFull({ size = 44, className = '' }: LogoProps) {
   )
 }
 
-// Small variant for sidebar (icon only or compact)
 export function LogoCompact({ className = '' }: { className?: string }) {
   return (
-    <div
-      className={className}
-      style={{ display: 'flex', alignItems: 'center', gap: 10 }}
-    >
+    <div className={className} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <LogoIcon size={32} />
-      <span
-        style={{
-          fontFamily: "'Inter', system-ui, sans-serif",
-          fontSize: 13,
-          fontWeight: 700,
-          letterSpacing: '0.28em',
-          color: '#FFFFFF',
-          textTransform: 'uppercase' as const,
-        }}
-      >
+      <span style={{
+        fontFamily: "'Inter', system-ui, sans-serif",
+        fontSize: 13,
+        fontWeight: 700,
+        letterSpacing: '0.28em',
+        color: '#FFFFFF',
+        textTransform: 'uppercase' as const,
+      }}>
         NEURASHIELD
       </span>
     </div>
