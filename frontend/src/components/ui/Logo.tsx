@@ -1,93 +1,148 @@
-const SHIELD = "M4,2 L36,2 Q38,2 38,4 L38,26 Q38,36 20,44 Q2,36 2,26 L2,4 Q2,2 4,2 Z";
-
-interface LogoIconProps {
-  size?: number;
+interface LogoProps {
+  size?: number
+  showText?: boolean
+  showSubtitle?: boolean
+  className?: string
 }
 
-export function LogoIcon({ size = 36 }: LogoIconProps) {
-  const s = size / 46;
+export function LogoIcon({ size = 44, className = '' }: { size?: number; className?: string }) {
   return (
-    <svg width={40 * s} height={46 * s} viewBox="0 0 40 46" fill="none">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 44 44"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+    >
       <defs>
-        <linearGradient id="lg1" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#3B82F6" />
-          <stop offset="100%" stopColor="#93C5FD" />
-        </linearGradient>
-        <linearGradient id="lg2" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%" stopColor="#3B82F6" stopOpacity="0.08" />
-          <stop offset="100%" stopColor="#93C5FD" stopOpacity="0.04" />
-        </linearGradient>
-        <filter id="glow-logo">
-          <feGaussianBlur stdDeviation="1.2" result="b" />
+        <filter id="ring-glow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="1.8" result="blur" />
           <feMerge>
-            <feMergeNode in="b" />
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+        <filter id="dot-glow" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="1.2" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
             <feMergeNode in="SourceGraphic" />
           </feMerge>
         </filter>
       </defs>
 
-      {/* Shield fill */}
-      <path d={SHIELD} fill="url(#lg2)" />
-      {/* Shield border */}
-      <path d={SHIELD} stroke="url(#lg1)" strokeWidth="1.5" fill="none" />
+      {/* Outer ring */}
+      <circle
+        cx="22"
+        cy="22"
+        r="16"
+        stroke="white"
+        strokeWidth="1"
+        fill="none"
+        opacity="0.9"
+        filter="url(#ring-glow)"
+      />
 
-      {/* Neural network connections */}
-      <g stroke="rgba(96,165,250,0.3)" strokeWidth="0.7" strokeLinecap="round">
-        <line x1="20" y1="10" x2="12" y2="20" />
-        <line x1="20" y1="10" x2="28" y2="20" />
-        <line x1="12" y1="20" x2="28" y2="20" />
-        <line x1="12" y1="20" x2="16" y2="32" />
-        <line x1="28" y1="20" x2="24" y2="32" />
-        <line x1="16" y1="32" x2="24" y2="32" />
-        <line x1="20" y1="10" x2="16" y2="32" />
-        <line x1="20" y1="10" x2="24" y2="32" />
-      </g>
+      {/* Top dot */}
+      <circle
+        cx="22"
+        cy="6"
+        r="1.8"
+        fill="white"
+        filter="url(#dot-glow)"
+      />
 
-      {/* Neural network nodes */}
-      <g filter="url(#glow-logo)">
-        <circle cx="20" cy="10" r="2.2" fill="#60A5FA" />
-        <circle cx="12" cy="20" r="1.6" fill="#3B82F6" />
-        <circle cx="28" cy="20" r="1.6" fill="#3B82F6" />
-        <circle cx="16" cy="32" r="1.6" fill="#93C5FD" />
-        <circle cx="24" cy="32" r="1.6" fill="#93C5FD" />
-      </g>
+      {/* Bottom dot */}
+      <circle
+        cx="22"
+        cy="38"
+        r="1.8"
+        fill="white"
+        filter="url(#dot-glow)"
+      />
+
+      {/* Left tick */}
+      <line
+        x1="2" y1="22" x2="5" y2="22"
+        stroke="white" strokeWidth="1" opacity="0.35"
+      />
+
+      {/* Right tick */}
+      <line
+        x1="39" y1="22" x2="42" y2="22"
+        stroke="white" strokeWidth="1" opacity="0.35"
+      />
+
+      {/* Center dot (very small, subtle) */}
+      <circle cx="22" cy="22" r="1" fill="white" opacity="0.4" />
     </svg>
-  );
+  )
 }
 
-interface LogoFullProps {
-  size?: number;
-  showSubtitle?: boolean;
-}
-
-export function LogoFull({ size = 34, showSubtitle = false }: LogoFullProps) {
+export function LogoFull({ size = 44, className = '' }: LogoProps) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <div
+      className={className}
+      style={{ display: 'flex', alignItems: 'center', gap: 14 }}
+    >
       <LogoIcon size={size} />
-      <div style={{ lineHeight: 1 }}>
-        <div style={{
-          fontFamily: "'Space Grotesk', sans-serif",
-          fontWeight: 700,
-          fontSize: 14,
-          letterSpacing: "0.18em",
-          color: "#F5F7FA",
-        }}>
-          NEURA<span style={{ color: "#60A5FA" }}>SHIELD</span>
-        </div>
-        {showSubtitle && (
-          <div style={{
-            fontSize: 8,
-            color: "#3A4150",
-            letterSpacing: "0.2em",
-            marginTop: 2,
-            fontFamily: "'Inter', sans-serif",
-            fontWeight: 500,
-            textTransform: "uppercase",
-          }}>
-            AI THREAT INTELLIGENCE
-          </div>
-        )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {/* Brand name */}
+        <span
+          style={{
+            fontFamily: "'Inter', system-ui, sans-serif",
+            fontSize: 15,
+            fontWeight: 300,
+            letterSpacing: '0.35em',
+            color: '#FFFFFF',
+            textTransform: 'uppercase' as const,
+            lineHeight: 1,
+          }}
+        >
+          NEURASHIELD
+        </span>
+        {/* Subtitle */}
+        <span
+          style={{
+            fontFamily: "'Inter', system-ui, sans-serif",
+            fontSize: 7,
+            fontWeight: 400,
+            letterSpacing: '0.28em',
+            color: 'rgba(255,255,255,0.3)',
+            textTransform: 'uppercase' as const,
+            lineHeight: 1,
+          }}
+        >
+          AI POWERED SOC ANALYST PLATFORM
+        </span>
       </div>
     </div>
-  );
+  )
 }
+
+// Small variant for sidebar (icon only or compact)
+export function LogoCompact({ className = '' }: { className?: string }) {
+  return (
+    <div
+      className={className}
+      style={{ display: 'flex', alignItems: 'center', gap: 10 }}
+    >
+      <LogoIcon size={32} />
+      <span
+        style={{
+          fontFamily: "'Inter', system-ui, sans-serif",
+          fontSize: 13,
+          fontWeight: 300,
+          letterSpacing: '0.3em',
+          color: '#FFFFFF',
+          textTransform: 'uppercase' as const,
+        }}
+      >
+        NEURASHIELD
+      </span>
+    </div>
+  )
+}
+
+export default LogoFull

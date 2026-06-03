@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useTenantStore } from "@/stores/tenantStore";
-import { LogoFull } from "@/components/ui/Logo";
+import { LogoCompact } from "@/components/ui/Logo";
 import { getAlerts } from "@/services/alertsApi";
 import { useQuery } from "@tanstack/react-query";
 
@@ -142,7 +142,7 @@ export function Sidebar() {
 
       {/* Logo */}
       <div style={{ padding: "16px 14px", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-        <LogoFull size={34} />
+        <LogoCompact />
       </div>
 
       {/* Nav */}
