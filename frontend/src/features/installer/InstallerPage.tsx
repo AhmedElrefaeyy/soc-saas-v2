@@ -346,11 +346,22 @@ function Pagination({
 const PAGE_LIMIT = 25;
 
 export function InstallerPage() {
+  // ALL hooks must come before any conditional returns (Rules of Hooks)
   const activeTenant = useTenantStore((s) => s.activeTenant);
-  const hasRole = useTenantStore((s) => s.hasRole);
-  const canManage = hasRole("admin");
+  const hasRole      = useTenantStore((s) => s.hasRole);
+  const canManage    = hasRole("admin");
 
-  // Guard: no tenant selected yet
+  const [statusFilter, setStatusFilter] = useState<InstallerTokenStatus | "all">("all");
+  const [page, setPage]                 = useState(1);
+  const [showGenerate, setShowGenerate] = useState(false);
+  const [generatedToken, setGeneratedToken] = useState<InstallerTokenGenerateResponse | null>(null);
+  const [showSuccess, setShowSuccess]   = useState(false);
+  const [selectedToken, setSelectedToken] = useState<InstallerToken | null>(null);
+
+  const { data, isLoading, isError, error, refetch, isFetching } =
+    useInstallerTokens(page, PAGE_LIMIT, statusFilter);
+
+  // Guard: no tenant selected — render after all hooks
   if (!activeTenant) {
     return (
       <div style={{ textAlign: "center", padding: "80px 0" }}>
@@ -364,22 +375,6 @@ export function InstallerPage() {
       </div>
     );
   }
-
-  const [statusFilter, setStatusFilter] = useState<
-    InstallerTokenStatus | "all"
-  >("all");
-  const [page, setPage] = useState(1);
-
-  const [showGenerate, setShowGenerate] = useState(false);
-  const [generatedToken, setGeneratedToken] =
-    useState<InstallerTokenGenerateResponse | null>(null);
-  const [showSuccess, setShowSuccess] = useState(false);
-  const [selectedToken, setSelectedToken] = useState<InstallerToken | null>(
-    null,
-  );
-
-  const { data, isLoading, isError, error, refetch, isFetching } =
-    useInstallerTokens(page, PAGE_LIMIT, statusFilter);
 
   const tokens = data?.data ?? [];
   const pagination = data?.pagination;
