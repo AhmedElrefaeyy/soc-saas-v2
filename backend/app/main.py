@@ -53,32 +53,32 @@ def create_application() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # ─── Middleware (order matters — first registered = outermost) ────────────
-    # Use wildcard origins when ALLOWED_ORIGINS contains "*", otherwise use the
-    # explicit list.  With wildcard we cannot send credentials, so set
-    # allow_credentials=False to avoid a browser CORS error.
+    # ─── Exception handlers (registered before middleware so they are wrapped) ──
+    register_exception_handlers(app)
+
+    # ─── Middleware (LAST add_middleware call = OUTERMOST layer) ─────────────
+    # RequestContextMiddleware is registered first → sits INSIDE CORSMiddleware.
+    # CORSMiddleware is registered last → OUTERMOST, so it adds CORS headers to
+    # ALL responses including those produced by exception handlers.
+    app.add_middleware(RequestContextMiddleware)
+
     origins = settings.ALLOWED_ORIGINS
     use_wildcard = origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        # Also accept any Railway deployment automatically via regex.
-        # Falls back to no regex if CORS_ALLOW_ORIGIN_REGEX is empty string.
+        # Accept any Railway deployment automatically (no Variables needed).
         allow_origin_regex=settings.CORS_ALLOW_ORIGIN_REGEX or None,
+        # Wildcard origin cannot be combined with allow_credentials=True.
         allow_credentials=not use_wildcard,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
     )
-    # RequestContextMiddleware must be inside CORS so it runs on every request
-    app.add_middleware(RequestContextMiddleware)
 
     # ─── Routes ───────────────────────────────────────────────────────────────
     from app.api.v1.router import api_router
     app.include_router(api_router, prefix=settings.API_PREFIX)
-
-    # ─── Exception handlers ───────────────────────────────────────────────────
-    register_exception_handlers(app)
 
     return app
 

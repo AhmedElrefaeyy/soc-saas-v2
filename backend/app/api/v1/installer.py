@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.dependencies import require_permission
 from app.core.exceptions import RateLimitError
-from app.core.redis import TenantRedisClient, get_redis
+from app.core.redis import TenantRedisClient, get_redis, get_redis_optional
 from app.models.installer_token import InstallerTokenStatus
 from app.rbac.permissions import Permission
 from app.schemas.common import APIResponse, EmptyResponse, PaginatedResponse
@@ -71,41 +71,43 @@ async def generate_installer_token(
     payload: InstallerTokenGenerateRequest,
     member: Annotated[object, require_permission(Permission.AGENTS_MANAGE)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    redis: Annotated[object, Depends(get_redis)],
+    redis: Annotated[object | None, Depends(get_redis_optional)] = None,
 ) -> APIResponse[InstallerTokenGenerateResponse]:
     from app.models.tenant_member import TenantMember
     from redis.asyncio import Redis
 
     m: TenantMember = member  # type: ignore[assignment]
-    redis_typed: Redis[str] = redis  # type: ignore[assignment]
 
     # Rate limiting: tenant-scoped, subsystem "installer"
     # Graceful fallback: if Redis is unavailable, skip rate limiting and proceed.
     remaining = _RATE_LIMIT
-    try:
-        rate_client = TenantRedisClient(redis_typed, str(m.tenant_id), "installer")
-        allowed, remaining = await rate_client.check_rate_limit(
-            "gen_token", _RATE_LIMIT, _RATE_WINDOW_SECS
-        )
-        if not allowed:
+    if redis is not None:
+        redis_typed: Redis[str] = redis  # type: ignore[assignment]
+        try:
+            rate_client = TenantRedisClient(redis_typed, str(m.tenant_id), "installer")
+            allowed, remaining = await rate_client.check_rate_limit(
+                "gen_token", _RATE_LIMIT, _RATE_WINDOW_SECS
+            )
+            if not allowed:
+                logger.warning(
+                    "installer_token_rate_limit_exceeded",
+                    tenant_id=str(m.tenant_id),
+                    actor_id=str(m.user_id),
+                )
+                raise RateLimitError(
+                    f"Token generation limit of {_RATE_LIMIT} per hour exceeded",
+                    retry_after=_RATE_WINDOW_SECS,
+                )
+        except RateLimitError:
+            raise
+        except Exception as redis_err:
             logger.warning(
-                "installer_token_rate_limit_exceeded",
+                "installer_rate_limit_redis_unavailable",
+                error=str(redis_err),
                 tenant_id=str(m.tenant_id),
-                actor_id=str(m.user_id),
             )
-            raise RateLimitError(
-                f"Token generation limit of {_RATE_LIMIT} per hour exceeded",
-                retry_after=_RATE_WINDOW_SECS,
-            )
-    except RateLimitError:
-        raise
-    except Exception as redis_err:
-        # Redis unavailable — log and continue without rate limiting
-        logger.warning(
-            "installer_rate_limit_redis_unavailable",
-            error=str(redis_err),
-            tenant_id=str(m.tenant_id),
-        )
+    else:
+        logger.warning("installer_rate_limit_skipped_no_redis", tenant_id=str(m.tenant_id))
 
     result = await InstallerService.generate_installer_token(
         db, m.tenant_id, payload, created_by_id=m.user_id

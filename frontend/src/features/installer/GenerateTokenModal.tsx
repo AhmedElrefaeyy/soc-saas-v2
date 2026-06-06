@@ -1,7 +1,7 @@
 import { useState, FormEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Terminal, AlertCircle, Info } from "lucide-react";
-import { cn, extractApiError } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { useGenerateToken } from "./useInstallerTokens";
 import type { InstallerTokenGenerateResponse } from "@/types/installer";
 
@@ -57,8 +57,34 @@ export function GenerateTokenModal({ open, onClose, onSuccess }: Props) {
       });
       resetForm();
       onSuccess(result);
-    } catch (err) {
-      setError(extractApiError(err));
+    } catch (err: unknown) {
+      console.error("[GenerateToken] error:", err);
+
+      if (err && typeof err === "object") {
+        const axiosErr = err as {
+          response?: {
+            data?: { error?: { message?: string }; detail?: string };
+            status?: number;
+          };
+          message?: string;
+        };
+
+        if (axiosErr.response?.data?.error?.message) {
+          setError(axiosErr.response.data.error.message);
+        } else if (axiosErr.response?.data?.detail) {
+          setError(axiosErr.response.data.detail);
+        } else if (axiosErr.response?.status) {
+          setError(`Server error (${axiosErr.response.status})`);
+        } else if (axiosErr.message === "Network Error") {
+          setError(
+            "Cannot reach the server — check that VITE_API_URL is set correctly in Railway frontend Variables, and that ALLOWED_ORIGINS includes the frontend URL in Railway backend Variables."
+          );
+        } else {
+          setError(axiosErr.message ?? "Unknown error");
+        }
+      } else {
+        setError(String(err));
+      }
     }
   }
 

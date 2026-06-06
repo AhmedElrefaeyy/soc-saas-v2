@@ -65,9 +65,18 @@ class RedisManager:
 redis_manager = RedisManager()
 
 
-# ─── FastAPI dependency ───────────────────────────────────────────────────────
+# ─── FastAPI dependencies ────────────────────────────────────────────────────
+
 async def get_redis() -> "Redis[str]":
     return redis_manager.get_client()
+
+
+async def get_redis_optional() -> "Redis[str] | None":
+    """Like get_redis but returns None instead of raising if Redis is down."""
+    try:
+        return redis_manager.get_client()
+    except Exception:
+        return None
 
 
 # ─── Tenant-scoped Redis client ───────────────────────────────────────────────
