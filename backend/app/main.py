@@ -54,10 +54,15 @@ def create_application() -> FastAPI:
     )
 
     # ─── Middleware (order matters — first registered = outermost) ────────────
+    # Use wildcard origins when ALLOWED_ORIGINS contains "*", otherwise use the
+    # explicit list.  With wildcard we cannot send credentials, so set
+    # allow_credentials=False to avoid a browser CORS error.
+    origins = settings.ALLOWED_ORIGINS
+    use_wildcard = origins == ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.ALLOWED_ORIGINS,
-        allow_credentials=True,
+        allow_origins=origins,
+        allow_credentials=not use_wildcard,
         allow_methods=["*"],
         allow_headers=["*"],
         expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
