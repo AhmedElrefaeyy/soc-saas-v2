@@ -1,26 +1,22 @@
 #!/bin/sh
-# Startup script: apply DB migrations then launch the app.
-# Resilient by design: if alembic fails the server still starts so Railway
-# keeps the deployment alive and the error is visible in Deploy Logs.
+# Container startup: apply DB schema then launch the app.
 
-echo "[startup] ── Database migrations ──────────────────────────────────"
+echo "[startup] ── Database schema ────────────────────────────────────────"
 
-# Attempt 1: normal upgrade
+# Attempt 1: standard alembic migration path (works on clean Railway DBs)
 if alembic upgrade head 2>&1; then
-    echo "[startup] Migrations applied successfully."
+    echo "[startup] Migrations applied via alembic."
 else
-    echo "[startup] alembic upgrade head failed — attempting recovery..."
+    echo "[startup] alembic upgrade head failed (likely tables pre-exist)."
+    echo "[startup] Falling back to create_all..."
 
-    # The DB may have tables created outside alembic (create_all / manual SQL).
-    # Stamp the current head so alembic knows which revision we are at,
-    # then retry so only truly missing migrations are applied.
-    alembic stamp head 2>&1 || true
-    if alembic upgrade head 2>&1; then
-        echo "[startup] Migrations applied after stamp recovery."
+    # Attempt 2: create_all(checkfirst=True) creates only missing tables/enums.
+    # Then stamps alembic_version so future upgrades are no-ops.
+    if python ensure_schema.py; then
+        echo "[startup] Schema ready via ensure_schema."
     else
-        echo "[startup] WARNING: migrations could not be applied."
-        echo "[startup] The server will start but some endpoints may fail."
-        echo "[startup] Check Deploy Logs and run 'alembic upgrade head' manually."
+        echo "[startup] WARNING: schema setup failed — server starting anyway."
+        echo "[startup] Some endpoints may return 500. Check Railway Deploy Logs."
     fi
 fi
 

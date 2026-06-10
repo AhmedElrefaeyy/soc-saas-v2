@@ -49,6 +49,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY app/ ./app/
 COPY migrations/ ./migrations/
 COPY alembic.ini .
+COPY ensure_schema.py .
 COPY start.sh .
 
 RUN chmod +x start.sh \
