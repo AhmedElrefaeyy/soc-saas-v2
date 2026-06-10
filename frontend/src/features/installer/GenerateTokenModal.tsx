@@ -60,30 +60,28 @@ export function GenerateTokenModal({ open, onClose, onSuccess }: Props) {
     } catch (err: unknown) {
       console.error("[GenerateToken] error:", err);
 
-      if (err && typeof err === "object") {
-        const axiosErr = err as {
-          response?: {
-            data?: { error?: { message?: string }; detail?: string };
-            status?: number;
-          };
-          message?: string;
+      const e = err as {
+        response?: {
+          data?: { error?: { message?: string }; detail?: string };
+          status?: number;
         };
+        message?: string;
+        code?: string;
+      };
 
-        if (axiosErr.response?.data?.error?.message) {
-          setError(axiosErr.response.data.error.message);
-        } else if (axiosErr.response?.data?.detail) {
-          setError(axiosErr.response.data.detail);
-        } else if (axiosErr.response?.status) {
-          setError(`Server error (${axiosErr.response.status})`);
-        } else if (axiosErr.message === "Network Error") {
-          setError(
-            "Cannot reach the server — check that VITE_API_URL is set correctly in Railway frontend Variables, and that ALLOWED_ORIGINS includes the frontend URL in Railway backend Variables."
-          );
-        } else {
-          setError(axiosErr.message ?? "Unknown error");
-        }
+      if (e?.response?.data?.error?.message) {
+        setError(e.response.data.error.message);
+      } else if (e?.response?.data?.detail) {
+        setError(String(e.response.data.detail));
+      } else if (e?.response?.status) {
+        setError(`Server error ${e.response.status} — check Railway logs`);
+      } else if (e?.code === "ERR_NETWORK" || e?.message === "Network Error") {
+        setError(
+          "Cannot reach the server. Make sure VITE_API_URL is set in " +
+            "Railway environment variables for the frontend service."
+        );
       } else {
-        setError(String(err));
+        setError(e?.message ?? "Unknown error");
       }
     }
   }

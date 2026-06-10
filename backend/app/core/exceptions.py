@@ -168,6 +168,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         response = _error_response(exc.status_code, exc.code, exc.message, exc.details)
         for k, v in headers.items():
             response.headers[k] = v
+        origin = request.headers.get("origin", "")
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
         return response
 
     @app.exception_handler(RequestValidationError)
@@ -182,12 +186,17 @@ def register_exception_handlers(app: FastAPI) -> None:
             }
             for err in exc.errors()
         ]
-        return _error_response(
+        response = _error_response(
             status.HTTP_422_UNPROCESSABLE_ENTITY,
             "VALIDATION_ERROR",
             "Request validation failed",
             details,
         )
+        origin = request.headers.get("origin", "")
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -197,8 +206,13 @@ def register_exception_handlers(app: FastAPI) -> None:
             method=request.method,
             exc_type=type(exc).__name__,
         )
-        return _error_response(
+        response = _error_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "INTERNAL_ERROR",
             "An unexpected error occurred",
         )
+        origin = request.headers.get("origin", "")
+        if origin:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+        return response
