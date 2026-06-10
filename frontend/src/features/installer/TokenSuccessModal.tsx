@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   CheckCircle,
@@ -11,6 +11,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTenantStore } from "@/stores/tenantStore";
 import type { InstallerTokenGenerateResponse } from "@/types/installer";
 
 interface Props {
@@ -111,10 +112,22 @@ const INSTALL_STEPS = [
 
 export function TokenSuccessModal({ open, token, onClose }: Props) {
   const { display: countdown, isUrgent } = useCountdown(token?.expires_at);
+  const tenantId = useTenantStore((s) => s.activeTenant?.id ?? "");
+  const apiBase = (import.meta.env.VITE_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
-  const installCommand = token
-    ? `powershell -ExecutionPolicy Bypass -File bootstrap.ps1 -Token ${token.raw_token}`
-    : "";
+  const installCommand = useMemo(() => {
+    if (!token) return "";
+    const scriptUrl = `${apiBase}/api/v1/installer/bootstrap.ps1`;
+    return (
+      `# Step 1 — download the installer (run once)\n` +
+      `Invoke-WebRequest -Uri "${scriptUrl}" -OutFile bootstrap.ps1\n\n` +
+      `# Step 2 — run the installer as Administrator\n` +
+      `powershell -ExecutionPolicy Bypass -File bootstrap.ps1 \`\n` +
+      `  -Token ${token.raw_token} \`\n` +
+      `  -TenantId ${tenantId} \`\n` +
+      `  -ApiUrl ${apiBase}`
+    );
+  }, [token, tenantId, apiBase]);
 
   const handleClose = useCallback(() => {
     onClose();

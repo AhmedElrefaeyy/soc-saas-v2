@@ -4,7 +4,10 @@ from typing import Annotated
 from uuid import UUID
 
 import structlog
+import os
+
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -27,6 +30,25 @@ from app.services.installer_service import InstallerService
 logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/installer", tags=["installer"])
+
+_BOOTSTRAP_SCRIPT = os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "scripts", "bootstrap.ps1"
+)
+
+
+@router.get("/bootstrap.ps1", include_in_schema=False)
+async def download_bootstrap_script() -> PlainTextResponse:
+    """Serves the PowerShell bootstrap installer script for download."""
+    try:
+        with open(os.path.normpath(_BOOTSTRAP_SCRIPT), "r", encoding="utf-8") as f:
+            content = f.read()
+        return PlainTextResponse(
+            content=content,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": 'attachment; filename="bootstrap.ps1"'},
+        )
+    except FileNotFoundError:
+        return PlainTextResponse("# bootstrap.ps1 not found", status_code=404)
 
 # Rate limit: 50 token generations per hour per tenant
 _RATE_LIMIT = 50
