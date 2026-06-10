@@ -2,11 +2,10 @@
 """
 NEURASHIELD SOC Agent v2.0
 Reads credentials from C:\ProgramData\SOCAnalyst\credentials.json
-Uses V2 backend authentication (X-Agent-ID + X-Agent-Token + X-Tenant-ID)
+Uses V2 backend auth: X-Agent-ID + X-Agent-Token + X-Tenant-ID
 """
 
 import datetime
-import gzip
 import hashlib
 import json
 import os
@@ -18,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid as _uuid_mod
 
 try:
     import requests
@@ -27,12 +27,12 @@ except ImportError:
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-_AGENT_DIR      = r"C:\ProgramData\SOCAnalyst"
-_CREDS_FILE     = os.path.join(_AGENT_DIR, "credentials.json")
-_LOG_PATH       = os.path.join(_AGENT_DIR, "agent_v2.log")
-_Q_DB_PATH      = os.path.join(_AGENT_DIR, "event_queue_v2.db")
+_AGENT_DIR       = r"C:\ProgramData\SOCAnalyst"
+_CREDS_FILE      = os.path.join(_AGENT_DIR, "credentials.json")
+_LOG_PATH        = os.path.join(_AGENT_DIR, "agent_v2.log")
+_Q_DB_PATH       = os.path.join(_AGENT_DIR, "event_queue_v2.db")
 _CHECKPOINT_FILE = os.path.join(_AGENT_DIR, "checkpoint_v2.json")
-_LOG_MAX_BYTES  = 10 * 1024 * 1024
+_LOG_MAX_BYTES   = 10 * 1024 * 1024
 
 
 def _load_credentials():
@@ -56,6 +56,7 @@ AGENT_ID         = _creds["agent_id"]
 ENROLLMENT_TOKEN = _creds["enrollment_token"]
 TENANT_ID        = _creds["tenant_id"]
 _HOSTNAME        = _creds.get("hostname") or platform.node()
+_OS_TYPE         = "windows" if platform.system() == "Windows" else platform.system().lower()
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -110,11 +111,10 @@ def _now():
 def _utc_iso():
     return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
-# ── Auth headers ──────────────────────────────────────────────────────────────
+# ── Auth headers (Bug 1 fixed: includes X-Tenant-ID) ─────────────────────────
 
 
 def _agent_headers():
-    """V2 auth: all three headers are required by the backend."""
     return {
         "X-Agent-ID":    AGENT_ID,
         "X-Agent-Token": ENROLLMENT_TOKEN,
@@ -123,7 +123,6 @@ def _agent_headers():
     }
 
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
-
 
 _AGENT_REVOKED = False
 
@@ -157,103 +156,80 @@ def _post(path: str, payload: dict, timeout: int = 10) -> bool:
                 print(f"[{_now()}] POST {path} failed: {exc}")
     return False
 
-# ── Heartbeat ─────────────────────────────────────────────────────────────────
+# ── Heartbeat (correct HeartbeatRequest schema) ───────────────────────────────
 
-HEARTBEAT_INTERVAL = 20  # seconds
-
-
-def _get_ip():
-    try:
-        return socket.gethostbyname(socket.gethostname())
-    except Exception:
-        return None
+HEARTBEAT_INTERVAL = 20
 
 
 def _heartbeat() -> bool:
-    """POST /api/v1/agents/heartbeat — schema: HeartbeatRequest"""
-    os_metrics = {}
+    """POST /api/v1/agents/heartbeat — HeartbeatRequest schema"""
     try:
-        import psutil
-        os_metrics = {
-            "cpu_percent":  psutil.cpu_percent(interval=0.1),
-            "memory_percent": psutil.virtual_memory().percent,
-            "uptime_seconds": time.time() - psutil.boot_time(),
-        }
-    except ImportError:
-        pass
+        ip = socket.gethostbyname(socket.gethostname())
+    except Exception:
+        ip = None
 
     payload = {
         "agent_version": "2.0.0",
-        "ip_address":    _get_ip(),
-        "os_metrics":    os_metrics,
+        "ip_address":    ip,
+        "os_metrics":    {},
     }
     return _post("/api/v1/agents/heartbeat", payload, timeout=5)
 
-# ── Event format conversion ───────────────────────────────────────────────────
+# ── Event format conversion (Bug 2 fixed) ─────────────────────────────────────
+
+_CATEGORY_MAP = {
+    "network_monitor":  "network",
+    "process_monitor":  "process",
+    "fim_monitor":      "file",
+    "auth.log":         "auth",
+    "secure":           "auth",
+    "audit.log":        "auth",
+    "Microsoft-Windows-PowerShell/Operational":                      "process",
+    "Microsoft-Windows-Sysmon/Operational":                          "process",
+    "Microsoft-Windows-WMI-Activity/Operational":                    "process",
+    "Microsoft-Windows-TaskScheduler/Operational":                   "process",
+    "Microsoft-Windows-DNS-Client/Operational":                      "dns",
+    "Microsoft-Windows-Firewall-With-Advanced-Security/Firewall":    "network",
+}
 
 
-def _source_to_category(source_name: str) -> str:
-    """Map V1 source_name to V2 category enum."""
-    s = source_name.lower()
-    if any(x in s for x in ("security", "auth", "logon", "kerberos", "ntlm")):
-        return "auth"
-    if "network" in s:
-        return "network"
-    if any(x in s for x in ("process", "sysmon", "powershell", "scheduler", "wmi")):
-        return "process"
-    if any(x in s for x in ("fim", "file", "applocker")):
-        return "file"
-    if "registry" in s:
-        return "registry"
-    if "dns" in s:
-        return "dns"
-    return "other"
+def _to_v2_format(v1_events: list) -> list:
+    """Convert V1 log entries {source_name, timestamp, raw_message}
+    to V2 RawEventPayload format."""
+    result = []
+    for evt in v1_events:
+        source  = evt.get("source_name", "")
+        raw_msg = evt.get("raw_message", "")
 
+        # Determine category
+        category = "other"
+        for key, cat in _CATEGORY_MAP.items():
+            if key.lower() in source.lower():
+                category = cat
+                break
 
-def _v1_to_v2_event(v1_event: dict) -> dict:
-    """Convert a V1-style log entry to a V2 RawEventPayload dict."""
-    raw_msg  = v1_event.get("raw_message", "")
-    src_name = v1_event.get("source_name", "unknown")
-    ts       = v1_event.get("timestamp", _utc_iso())
+        # Override for Windows Security log based on message content
+        if "security" in source.lower() and category == "other":
+            if any(x in raw_msg for x in
+                   ["Logon", "Authentication", "4624", "4625", "4648", "4776"]):
+                category = "auth"
+            elif any(x in raw_msg for x in ["4688", "Process", "process"]):
+                category = "process"
+            else:
+                category = "auth"
 
-    # Stable unique ID: sha256 of channel + timestamp + first 200 chars of message
-    uid_src  = f"{src_name}|{ts}|{raw_msg[:200]}"
-    event_id = hashlib.sha256(uid_src.encode("utf-8", "replace")).hexdigest()[:32]
-
-    # Try to parse event_id number from "EventID 4624: ..." messages
-    process_data = None
-    user_data    = None
-    raw_extra    = {"source": src_name, "message": raw_msg}
-
-    evt_match = re.match(r"EventID\s+(\d+):\s*(.*)", raw_msg, re.DOTALL)
-    if evt_match:
-        raw_extra["event_id_number"] = int(evt_match.group(1))
-        raw_extra["event_detail"]    = evt_match.group(2)[:500]
-
-    # Extract Account Name if present (for auth events)
-    acct_match = re.search(r"Account Name:\s*(.+)", raw_msg)
-    if acct_match:
-        user_data = {"username": acct_match.group(1).strip()}
-
-    # Extract process name if present
-    proc_match = re.search(r"New Process Name:\s*(.+)", raw_msg)
-    if proc_match:
-        process_data = {"name": os.path.basename(proc_match.group(1).strip())}
-
-    event = {
-        "event_id":  event_id,
-        "timestamp": ts,
-        "category":  _source_to_category(src_name),
-        "hostname":  _HOSTNAME,
-        "os_type":   "windows" if platform.system() == "Windows" else platform.system().lower(),
-        "raw":       raw_extra,
-    }
-    if process_data:
-        event["process"] = process_data
-    if user_data:
-        event["user"] = user_data
-
-    return event
+        result.append({
+            "event_id":  str(_uuid_mod.uuid4()),
+            "timestamp": evt.get("timestamp", _utc_iso()),
+            "category":  category,
+            "hostname":  _HOSTNAME,
+            "os_type":   _OS_TYPE,
+            "raw": {
+                "message":     raw_msg,
+                "source_name": source,
+            },
+        })
+    return result
 
 # ── Queue ─────────────────────────────────────────────────────────────────────
 
@@ -280,12 +256,12 @@ CREATE TABLE IF NOT EXISTS queue (
 """)
         self._db.commit()
 
-    def enqueue(self, events: list):
-        if not events:
+    def enqueue(self, v1_events: list):
+        if not v1_events:
             return
         now = time.time()
         with self._lock:
-            for evt in events:
+            for evt in v1_events:
                 raw = json.dumps(evt, sort_keys=True, separators=(",", ":"))
                 h   = hashlib.sha256(raw.encode()).hexdigest()
                 try:
@@ -351,24 +327,30 @@ class _QueueDrainer:
 
         ids          = [r[0] for r in rows]
         retry_counts = {r[0]: r[2] for r in rows}
-        events = []
-        bad    = []
+
+        # Parse stored V1 events
+        v1_events = []
+        bad = []
         for id_, payload_str, _ in rows:
             try:
-                events.append(json.loads(payload_str))
+                v1_events.append(json.loads(payload_str))
             except Exception:
                 bad.append(id_)
+
         for id_ in bad:
             self._q.nack(id_, retry_counts[id_])
-        ids    = [i for i in ids    if i not in set(bad)]
-        events = [events[k] for k, r in enumerate(rows) if r[0] not in set(bad)]
+
+        ids      = [i for i in ids if i not in set(bad)]
+        v1_clean = [v1_events[k] for k, r in enumerate(rows) if r[0] not in set(bad)]
+
         if not ids:
             return
 
-        # V2 ingest endpoint: POST /api/v1/agents/ingest
-        # Body: IngestBatchRequest = { "events": [RawEventPayload, ...] }
-        # Regular JSON (no gzip — backend has no decompression middleware)
-        payload = {"events": events}
+        # Convert to V2 RawEventPayload format
+        v2_events = _to_v2_format(v1_clean)
+
+        # POST as plain JSON — backend expects IngestBatchRequest
+        payload = {"events": v2_events}
 
         err = ""
         for attempt in range(3):
@@ -384,11 +366,11 @@ class _QueueDrainer:
                     print(f"[{_now()}] [Q] Delivered {len(ids)} events")
                     return
                 if r.status_code in (401, 403, 410):
+                    print(f"[{_now()}] [Q] Auth error {r.status_code}: {r.text[:200]}")
                     for id_ in ids:
                         self._q.nack(id_, retry_counts[id_])
-                    print(f"[{_now()}] [Q] Auth error {r.status_code} — stopping delivery")
                     return
-                err = f"http_{r.status_code}: {r.text[:200]}"
+                err = f"http_{r.status_code}: {r.text[:100]}"
             except Exception as exc:
                 err = str(exc)[:200]
             if attempt < 2:
@@ -409,17 +391,7 @@ def _init_queue():
         _queue   = _EventQueue(_Q_DB_PATH)
         _drainer = _QueueDrainer(_queue)
 
-
-def _queue_events(v1_logs: list):
-    """Convert V1 log entries to V2 format and enqueue."""
-    if not v1_logs or _queue is None:
-        return
-    v2_events = [_v1_to_v2_event(e) for e in v1_logs]
-    _queue.enqueue(v2_events)
-
-# ── Monitoring (ported from V1 soc_agent.py) ─────────────────────────────────
-
-# -- Constants -----------------------------------------------------------------
+# ── Monitoring constants ──────────────────────────────────────────────────────
 
 _SUSPICIOUS_PORTS = {
     4444, 1337, 31337, 6666, 6667, 6668, 6669,
@@ -451,8 +423,8 @@ _FIM_TARGETS_LINUX = [
     "/etc/crontab", "/etc/hosts",
 ]
 
-_fim_hashes:        dict = {}
-_seen_connections:  dict = {}
+_fim_hashes:       dict = {}
+_seen_connections: dict = {}
 _SEEN_CONNECTION_TTL = 3600
 
 _SKIP_IDS = {
@@ -474,7 +446,7 @@ _SAFE_PROCESSES = {
     "dllhost.exe", "conhost.exe", "explorer.exe",
 }
 
-_SYSTEM_ACCOUNTS  = {"system", "network service", "local service"}
+_SYSTEM_ACCOUNTS   = {"system", "network service", "local service"}
 CAPTURE_ALL_EVENTS = True
 
 _WIN_MODERN_CHANNELS = [
@@ -506,7 +478,7 @@ _EVTID_FIELDS = {
     7045: [("Service Name", 0), ("Image Path", 1), ("Service Type", 2)],
 }
 
-# -- Checkpoint ----------------------------------------------------------------
+# ── Checkpoint ────────────────────────────────────────────────────────────────
 
 _win_last_record:    dict = {}
 _win_modern_last_ts: dict = {}
@@ -536,7 +508,7 @@ def _save_checkpoint():
     except Exception:
         pass
 
-# -- Smart filter --------------------------------------------------------------
+# ── Smart event filter ────────────────────────────────────────────────────────
 
 
 def should_send_event(event_id, inserts):
@@ -560,23 +532,23 @@ def should_send_event(event_id, inserts):
         return True
     if event_id == 4672:
         try:
-            subj = str(inserts[1]).strip().lower()
-            if subj in _SYSTEM_ACCOUNTS or subj.endswith("$"):
+            s = str(inserts[1]).strip().lower()
+            if s in _SYSTEM_ACCOUNTS or s.endswith("$"):
                 return False
         except Exception:
             pass
         return True
     if event_id == 4688:
         try:
-            proc_name = str(inserts[5]).strip().split("\\")[-1].lower()
-            if proc_name in _SAFE_PROCESSES:
+            p = str(inserts[5]).strip().split("\\")[-1].lower()
+            if p in _SAFE_PROCESSES:
                 return False
         except Exception:
             pass
         return True
     return False
 
-# -- Event message formatter ---------------------------------------------------
+# ── Event message formatter ───────────────────────────────────────────────────
 
 
 def _fmt_event_message(ev, channel):
@@ -602,14 +574,14 @@ def _fmt_event_message(ev, channel):
         return " ".join(str(s) for s in inserts)
     return ""
 
-# -- Windows log reader --------------------------------------------------------
+# ── Windows log reader ────────────────────────────────────────────────────────
 
 
 def _read_windows_logs() -> list:
     try:
         import win32evtlog
     except ImportError:
-        print(f"[{_now()}] pywin32 not installed — skipping Windows logs")
+        print(f"[{_now()}] pywin32 not installed — run: pip install pywin32")
         return []
 
     logs = []
@@ -619,9 +591,8 @@ def _read_windows_logs() -> list:
             flags    = win32evtlog.EVENTLOG_BACKWARDS_READ | win32evtlog.EVENTLOG_SEQUENTIAL_READ
             last     = _win_last_record.get(channel, 0)
             new_last = last
-
-            _cutoff   = None
             _is_first = (last == 0)
+            _cutoff = None
             if _is_first:
                 _cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=2)
 
@@ -632,42 +603,35 @@ def _read_windows_logs() -> list:
                 if not batch:
                     break
                 if not all_new and batch[0].RecordNumber < last:
-                    last     = 0
-                    new_last = 0
+                    last = 0; new_last = 0
                 for ev in batch:
                     if ev.RecordNumber <= last:
-                        done = True
-                        break
+                        done = True; break
                     if _cutoff and ev.TimeGenerated.replace(tzinfo=None) < _cutoff:
-                        done = True
-                        break
+                        done = True; break
                     all_new.append(ev)
                     if _is_first and len(all_new) >= 500:
-                        done = True
-                        break
+                        done = True; break
 
             for ev in all_new:
                 new_last = max(new_last, ev.RecordNumber)
-                event_id = ev.EventID & 0xFFFF
-
+                eid      = ev.EventID & 0xFFFF
                 if CAPTURE_ALL_EVENTS:
-                    if event_id in _SKIP_IDS:
+                    if eid in _SKIP_IDS:
                         continue
-                elif not should_send_event(event_id, ev.StringInserts):
+                elif not should_send_event(eid, ev.StringInserts):
                     continue
-
-                full_msg = _fmt_event_message(ev, channel)
+                msg = _fmt_event_message(ev, channel)
                 logs.append({
                     "source_name": f"{channel}/{ev.SourceName}",
                     "timestamp":   ev.TimeGenerated.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "raw_message": f"EventID {event_id}: {full_msg or '(no message)'}",
+                    "raw_message": f"EventID {eid}: {msg or '(no message)'}",
                 })
 
             _win_last_record[channel] = new_last
             win32evtlog.CloseEventLog(handle)
         except Exception as exc:
             print(f"[{_now()}] Error reading {channel} log: {exc}")
-
     return logs
 
 
@@ -677,13 +641,13 @@ def _read_win_modern_channels() -> list:
         import win32evtlog as _w32
     except ImportError:
         return []
-
     import xml.etree.ElementTree as _et
-    NS  = "http://schemas.microsoft.com/win/2004/08/events/event"
+
+    NS   = "http://schemas.microsoft.com/win/2004/08/events/event"
     _SYS = "{" + NS + "}System"
     _TC  = "{" + NS + "}TimeCreated"
     _EID = "{" + NS + "}EventID"
-    _DATA = "{" + NS + "}Data"
+    _DAT = "{" + NS + "}Data"
 
     for channel in _WIN_MODERN_CHANNELS:
         try:
@@ -695,7 +659,6 @@ def _read_win_modern_channels() -> list:
                 cutoff = (datetime.datetime.utcnow() - datetime.timedelta(hours=2)
                           ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 xpath = "*[System[TimeCreated[@SystemTime>'" + cutoff + "']]]"
-
             try:
                 query = _w32.EvtQuery(
                     channel,
@@ -704,7 +667,6 @@ def _read_win_modern_channels() -> list:
                 )
             except Exception:
                 continue
-
             new_ts = last_ts
             count  = 0
             while not (_is_first and count >= 200):
@@ -724,13 +686,12 @@ def _read_win_modern_channels() -> list:
                         eid_el  = sys_el.find(_EID) if sys_el is not None else None
                         eid     = eid_el.text if eid_el is not None else "0"
                         parts   = []
-                        for d in root.iter(_DATA):
-                            name = d.get("Name", "")
-                            val  = (d.text or "").strip()
-                            if name and val:
-                                parts.append(f"{name}={val}")
-                            elif val:
-                                parts.append(val)
+                        for d in root.iter(_DAT):
+                            n = d.get("Name", ""); v = (d.text or "").strip()
+                            if n and v:
+                                parts.append(f"{n}={v}")
+                            elif v:
+                                parts.append(v)
                         msg = "; ".join(parts) if parts else "(no data)"
                         if not new_ts or ts > new_ts:
                             new_ts = ts
@@ -746,10 +707,9 @@ def _read_win_modern_channels() -> list:
                 _win_modern_last_ts[channel] = new_ts
         except Exception:
             continue
-
     return logs
 
-# -- Linux log reader ----------------------------------------------------------
+# ── Linux log reader ──────────────────────────────────────────────────────────
 
 
 class _FileTailer:
@@ -762,12 +722,11 @@ class _FileTailer:
             return []
         try:
             with open(self.path, errors="replace") as f:
-                f.seek(0, 2)
-                fsize = f.tell()
+                f.seek(0, 2); fsize = f.tell()
                 if self.pos > fsize:
                     self.pos = 0
                 f.seek(self.pos)
-                lines    = f.readlines()
+                lines = f.readlines()
                 self.pos = f.tell()
             return [l.rstrip() for l in lines if l.strip()]
         except Exception:
@@ -781,31 +740,35 @@ _LINUX_KEYWORDS = {
 }
 
 _LINUX_LOG_SOURCES = [
-    ("/var/log/auth.log",     True),
-    ("/var/log/secure",       True),
+    ("/var/log/auth.log",        True),
+    ("/var/log/secure",          True),
     ("/var/log/audit/audit.log", True),
-    ("/var/log/fail2ban.log", True),
-    ("/var/log/syslog",       False),
-    ("/var/log/messages",     False),
+    ("/var/log/fail2ban.log",    True),
+    ("/var/log/syslog",          False),
+    ("/var/log/messages",        False),
 ]
 
 _TS_SYSLOG = re.compile(r'^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\b')
 _TS_ISO    = re.compile(r'^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})')
 _MONTH_ABR = {
-    'jan':1,'feb':2,'mar':3,'apr':4,'may':5,'jun':6,
-    'jul':7,'aug':8,'sep':9,'oct':10,'nov':11,'dec':12,
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+    'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
 }
 
 
-def _parse_log_timestamp(line):
+def _keyword_match(text: str) -> bool:
+    lower = text.lower()
+    return any(kw in lower for kw in _LINUX_KEYWORDS)
+
+
+def _parse_log_timestamp(line: str):
     try:
         m = _TS_SYSLOG.match(line)
         if m:
             parts = m.group(1).split()
             mon = _MONTH_ABR.get(parts[0].lower()[:3])
             if mon:
-                day = int(parts[1])
-                h, mi, s = [int(x) for x in parts[2].split(':')]
+                day = int(parts[1]); h, mi, s = [int(x) for x in parts[2].split(':')]
                 now = datetime.datetime.utcnow()
                 dt  = datetime.datetime(now.year, mon, day, h, mi, s)
                 if dt > now + datetime.timedelta(days=1):
@@ -820,7 +783,7 @@ def _parse_log_timestamp(line):
     return None
 
 
-def _read_linux_logs():
+def _read_linux_logs() -> list:
     logs = []
     for path, send_all in _LINUX_LOG_SOURCES:
         if not os.path.exists(path):
@@ -828,7 +791,7 @@ def _read_linux_logs():
         if path not in _linux_tailers:
             _linux_tailers[path] = _FileTailer(path)
         for line in _linux_tailers[path].new_lines():
-            if send_all or any(kw in line.lower() for kw in _LINUX_KEYWORDS):
+            if send_all or _keyword_match(line):
                 logs.append({
                     "source_name": os.path.basename(path),
                     "timestamp":   _parse_log_timestamp(line) or _utc_iso(),
@@ -836,17 +799,18 @@ def _read_linux_logs():
                 })
     return logs
 
-# -- Network monitor -----------------------------------------------------------
+# ── Network monitor ───────────────────────────────────────────────────────────
 
 
-def _collect_network_connections():
+def _collect_network_connections() -> list:
     logs = []
     try:
         if platform.system() == "Windows":
-            out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, timeout=15).stdout
+            out = subprocess.run(["netstat", "-ano"],
+                                 capture_output=True, text=True, timeout=15).stdout
         else:
-            out = subprocess.run(["netstat", "-tn"],  capture_output=True, text=True, timeout=15).stdout
-
+            out = subprocess.run(["netstat", "-tn"],
+                                 capture_output=True, text=True, timeout=15).stdout
         for line in out.splitlines():
             if "ESTABLISHED" not in line:
                 continue
@@ -854,23 +818,24 @@ def _collect_network_connections():
             if len(parts) < 4:
                 continue
             try:
-                remote_addr = parts[2] if platform.system() == "Windows" else parts[4]
-                if ":" not in remote_addr or remote_addr.startswith("["):
+                remote = parts[2] if platform.system() == "Windows" else parts[4]
+                if ":" not in remote or remote.startswith("["):
                     continue
-                p = remote_addr.rsplit(":", 1)
-                remote_ip, remote_port = p[0], int(p[1])
-                if remote_ip in ("127.0.0.1", "::1") or remote_ip.startswith("169.254"):
+                p = remote.rsplit(":", 1)
+                rip, rport = p[0], int(p[1])
+                if rip in ("127.0.0.1", "::1") or rip.startswith("169.254"):
                     continue
-                key    = (remote_ip, remote_port)
-                now_t  = time.time()
+                key   = (rip, rport)
+                now_t = time.time()
                 if now_t - _seen_connections.get(key, 0) < _SEEN_CONNECTION_TTL:
                     continue
-                if remote_port in _SUSPICIOUS_PORTS:
+                if rport in _SUSPICIOUS_PORTS:
                     _seen_connections[key] = now_t
                     logs.append({
                         "source_name": "network_monitor",
                         "timestamp":   _utc_iso(),
-                        "raw_message": f"SUSPICIOUS NETWORK CONNECTION: remote={remote_ip}:{remote_port} proto=TCP state=ESTABLISHED",
+                        "raw_message": (f"SUSPICIOUS NETWORK CONNECTION: "
+                                        f"remote={rip}:{rport} proto=TCP state=ESTABLISHED"),
                     })
             except (ValueError, IndexError):
                 continue
@@ -878,10 +843,10 @@ def _collect_network_connections():
         print(f"[{_now()}] [NET] {exc}")
     return logs
 
-# -- Process monitor -----------------------------------------------------------
+# ── Process monitor ───────────────────────────────────────────────────────────
 
 
-def _collect_suspicious_processes():
+def _collect_suspicious_processes() -> list:
     logs = []
     try:
         if platform.system() == "Windows":
@@ -900,14 +865,14 @@ def _collect_suspicious_processes():
                         "raw_message": f"SUSPICIOUS PROCESS DETECTED: name={cols[0]} pid={pid}",
                     })
         else:
-            out = subprocess.run(["ps", "aux"], capture_output=True, text=True, timeout=15).stdout
+            out = subprocess.run(["ps", "aux"],
+                                 capture_output=True, text=True, timeout=15).stdout
             for line in out.splitlines()[1:]:
                 cols = line.split(None, 10)
                 if len(cols) < 11:
                     continue
-                cmd  = cols[10]
-                name = cmd.split("/")[-1].split()[0].lower()
-                pid  = cols[1]
+                cmd = cols[10]; name = cmd.split("/")[-1].split()[0].lower()
+                pid = cols[1]
                 if name in _SUSPICIOUS_PROC_NAMES:
                     logs.append({
                         "source_name": "process_monitor",
@@ -918,10 +883,10 @@ def _collect_suspicious_processes():
         print(f"[{_now()}] [PROC] {exc}")
     return logs
 
-# -- FIM -----------------------------------------------------------------------
+# ── FIM ───────────────────────────────────────────────────────────────────────
 
 
-def _sha256_file(path):
+def _sha256_file(path: str) -> str:
     try:
         h = hashlib.sha256()
         with open(path, "rb") as f:
@@ -932,7 +897,7 @@ def _sha256_file(path):
         return ""
 
 
-def _collect_fim_events():
+def _collect_fim_events() -> list:
     logs    = []
     targets = _FIM_TARGETS_WINDOWS if platform.system() == "Windows" else _FIM_TARGETS_LINUX
     for path in targets:
@@ -948,12 +913,13 @@ def _collect_fim_events():
             logs.append({
                 "source_name": "fim_monitor",
                 "timestamp":   _utc_iso(),
-                "raw_message": f"FILE INTEGRITY VIOLATION: path={path} prev={prev[:16]}... curr={current[:16]}...",
+                "raw_message": (f"FILE INTEGRITY VIOLATION: path={path} "
+                                f"prev={prev[:16]}... curr={current[:16]}..."),
             })
     return logs
 
 
-def _collect_logs():
+def _collect_logs() -> list:
     if platform.system() == "Windows":
         return _read_windows_logs() + _read_win_modern_channels()
     return _read_linux_logs()
@@ -981,17 +947,13 @@ def main():
     cp = _load_checkpoint()
     _win_last_record.update(cp.get("win_last_record", {}))
     _win_modern_last_ts.update(cp.get("win_modern_last_ts", {}))
-    for _cp_path, _cp_pos in cp.get("linux_positions", {}).items():
-        if _cp_path not in _linux_tailers and os.path.exists(_cp_path):
-            t = _FileTailer(_cp_path)
-            t.pos = _cp_pos
-            _linux_tailers[_cp_path] = t
+    for path, pos in cp.get("linux_positions", {}).items():
+        if path not in _linux_tailers and os.path.exists(path):
+            t = _FileTailer(path)
+            t.pos = pos
+            _linux_tailers[path] = t
 
-    last_heartbeat = 0.0
-    last_log_run   = 0.0
-    last_net_run   = 0.0
-    last_proc_run  = 0.0
-    last_fim_run   = 0.0
+    last_heartbeat = last_log = last_net = last_proc = last_fim = 0.0
 
     print(f"[{_now()}] Monitoring started.\n")
 
@@ -1003,42 +965,40 @@ def main():
         now = time.time()
 
         if now - last_heartbeat >= HEARTBEAT_INTERVAL:
-            ok = _heartbeat()
-            if ok:
+            if _heartbeat():
                 print(f"[{_now()}] [HB] OK")
             last_heartbeat = now
 
-        if now - last_log_run >= LOG_INTERVAL:
+        if now - last_log >= LOG_INTERVAL:
             logs = _collect_logs()
             if logs:
-                _queue_events(logs)
+                _queue.enqueue(logs)
                 print(f"[{_now()}] [LOG] Queued {len(logs)}")
             _save_checkpoint()
-            last_log_run = now
+            last_log = now
 
-        if now - last_net_run >= NET_INTERVAL:
+        if now - last_net >= NET_INTERVAL:
             net = _collect_network_connections()
             if net:
-                _queue_events(net)
-            last_net_run = now
+                _queue.enqueue(net)
+            last_net = now
 
-        if now - last_proc_run >= PROC_INTERVAL:
+        if now - last_proc >= PROC_INTERVAL:
             proc = _collect_suspicious_processes()
             if proc:
-                _queue_events(proc)
-            last_proc_run = now
+                _queue.enqueue(proc)
+            last_proc = now
 
-        if now - last_fim_run >= FIM_INTERVAL:
+        if now - last_fim >= FIM_INTERVAL:
             fim = _collect_fim_events()
             if fim:
-                _queue_events(fim)
-            last_fim_run = now
+                _queue.enqueue(fim)
+            last_fim = now
 
         time.sleep(5)
 
 
 if __name__ == "__main__":
-    # Single-instance lock
     _lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     _lock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
     try:
