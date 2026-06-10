@@ -191,7 +191,7 @@ async def bootstrap_enroll(
     payload: BootstrapEnrollRequest,
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
-    redis: Annotated[object, Depends(get_redis)],
+    redis: Annotated[object | None, Depends(get_redis_optional)] = None,
 ) -> APIResponse[BootstrapEnrollResponse]:
     """
     Called exclusively by the bootstrap installer, never by a browser.
@@ -218,24 +218,28 @@ async def bootstrap_enroll(
     from app.ingestion.service import IngestionService
     from app.services.audit_service import AuditService
 
-    redis_typed: Redis[str] = redis  # type: ignore[assignment]
-
     # ── Brute-force protection: IP-scoped rate limit ───────────────────────────
     client_ip = _get_client_ip(request)
-    ip_key = f"enroll_ip:{client_ip}"
-    # Use a global (non-tenant) Redis key for IP rate limiting
-    current = await redis_typed.incr(ip_key)
-    if current == 1:
-        await redis_typed.expire(ip_key, _ENROLL_RATE_WINDOW_SECS)
-    if current > _ENROLL_RATE_LIMIT:
+    if redis is not None:
+        redis_typed: Redis[str] = redis  # type: ignore[assignment]
+        ip_key = f"enroll_ip:{client_ip}"
+        current = await redis_typed.incr(ip_key)
+        if current == 1:
+            await redis_typed.expire(ip_key, _ENROLL_RATE_WINDOW_SECS)
+        if current > _ENROLL_RATE_LIMIT:
+            logger.warning(
+                "bootstrap_enroll_rate_limit_exceeded",
+                client_ip=client_ip,
+                attempts=current,
+            )
+            raise RateLimitError(
+                "Too many enrollment attempts — try again later",
+                retry_after=_ENROLL_RATE_WINDOW_SECS,
+            )
+    else:
         logger.warning(
-            "bootstrap_enroll_rate_limit_exceeded",
+            "bootstrap_enroll_rate_limit_skipped_no_redis",
             client_ip=client_ip,
-            attempts=current,
-        )
-        raise RateLimitError(
-            "Too many enrollment attempts — try again later",
-            retry_after=_ENROLL_RATE_WINDOW_SECS,
         )
 
     raw_token = payload.token

@@ -30,7 +30,17 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
     await database_manager.initialize()
-    await redis_manager.initialize()
+
+    # Redis is optional — rate limiting degrades gracefully when unavailable.
+    # A missing or unreachable Redis must never prevent the app from starting.
+    try:
+        await redis_manager.initialize()
+    except Exception as redis_exc:
+        logger.warning(
+            "redis_unavailable_at_startup",
+            error=str(redis_exc),
+            detail="Rate limiting and session features will be skipped until Redis is reachable.",
+        )
 
     logger.info("application_ready")
     yield
