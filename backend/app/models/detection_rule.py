@@ -54,10 +54,14 @@ class DetectionRule(Base, TimestampMixin, SoftDeleteMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     rule_type: Mapped[RuleType] = mapped_column(
-        Enum(RuleType, name="rule_type_enum"), nullable=False, index=True
+        Enum(RuleType, name="rule_type_enum",
+             values_callable=lambda x: [e.value for e in x]),
+        nullable=False, index=True,
     )
     severity: Mapped[RuleSeverity] = mapped_column(
-        Enum(RuleSeverity, name="rule_severity_enum"), nullable=False, index=True
+        Enum(RuleSeverity, name="rule_severity_enum",
+             values_callable=lambda x: [e.value for e in x]),
+        nullable=False, index=True,
     )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
     conditions: Mapped[dict] = mapped_column(JSONB, nullable=False)

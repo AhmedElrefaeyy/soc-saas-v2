@@ -40,11 +40,13 @@ class Agent(Base, TimestampMixin, SoftDeleteMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     hostname: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     os_type: Mapped[AgentOsType] = mapped_column(
-        Enum(AgentOsType, name="agent_os_type_enum"),
+        Enum(AgentOsType, name="agent_os_type_enum",
+             values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     status: Mapped[AgentStatus] = mapped_column(
-        Enum(AgentStatus, name="agent_status_enum"),
+        Enum(AgentStatus, name="agent_status_enum",
+             values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=AgentStatus.OFFLINE,
         index=True,

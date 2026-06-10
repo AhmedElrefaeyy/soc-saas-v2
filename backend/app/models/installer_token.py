@@ -53,7 +53,8 @@ class InstallerToken(Base, TimestampMixin):
     organization: Mapped[str] = mapped_column(String(255), nullable=False)
     machine_name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     status: Mapped[InstallerTokenStatus] = mapped_column(
-        Enum(InstallerTokenStatus, name="installer_token_status_enum"),
+        Enum(InstallerTokenStatus, name="installer_token_status_enum",
+             values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         default=InstallerTokenStatus.PENDING,
         index=True,

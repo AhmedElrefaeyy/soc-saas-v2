@@ -48,7 +48,8 @@ class Event(Base):
     raw_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
 
     category: Mapped[EventCategory] = mapped_column(
-        Enum(EventCategory, name="event_category_enum"),
+        Enum(EventCategory, name="event_category_enum",
+             values_callable=lambda x: [e.value for e in x]),
         nullable=False,
         index=True,
     )

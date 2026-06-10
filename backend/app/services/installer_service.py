@@ -69,20 +69,19 @@ class InstallerService:
             )
             raise
 
-        # TEMPORARILY DISABLED FOR DEBUGGING — re-enable after root cause confirmed
-        # await AuditService.log(
-        #     db,
-        #     action="installer_token.generated",
-        #     actor_id=created_by_id,
-        #     tenant_id=tenant_id,
-        #     resource_type="installer_token",
-        #     resource_id=token.id,
-        #     changes={
-        #         "organization": payload.organization,
-        #         "machine_name": payload.machine_name,
-        #         "expires_at": expires_at.isoformat(),
-        #     },
-        # )
+        await AuditService.log(
+            db,
+            action="installer_token.generated",
+            actor_id=created_by_id,
+            tenant_id=tenant_id,
+            resource_type="installer_token",
+            resource_id=token.id,
+            changes={
+                "organization": payload.organization,
+                "machine_name": payload.machine_name,
+                "expires_at": expires_at.isoformat(),
+            },
+        )
 
         logger.info(
             "installer_token_generated",
