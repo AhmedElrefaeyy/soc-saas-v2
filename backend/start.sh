@@ -1,5 +1,11 @@
 #!/bin/sh
-# Container startup: apply DB schema then launch the app.
+# Container startup: apply DB schema then launch the app or worker.
+
+# Worker mode: skip migrations (web service already ran them), start worker directly.
+if [ "${WORKER_MODE:-false}" = "true" ]; then
+    echo "[startup] ── Worker mode ──────────────────────────────────────────────"
+    exec python -m app.workers.main
+fi
 
 echo "[startup] ── Database schema ────────────────────────────────────────"
 
