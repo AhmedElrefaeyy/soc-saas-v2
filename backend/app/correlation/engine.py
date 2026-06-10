@@ -176,8 +176,13 @@ class CorrelationEngine:
         if ecid:
             pairs.append((f"ecid:{ecid}", SAME_EVENT_CHAIN.window_seconds))
 
-        entities: list[dict] = payload.get("entities", [])
+        entities = payload.get("entities", [])
+        # Handle both flat list (new format) and nested dict (legacy format)
+        if isinstance(entities, dict):
+            entities = [e for group in entities.values() if isinstance(group, list) for e in group]
         for entity in entities:
+            if not isinstance(entity, dict):
+                continue
             ek = entity.get("key", "")
             if not ek:
                 continue
