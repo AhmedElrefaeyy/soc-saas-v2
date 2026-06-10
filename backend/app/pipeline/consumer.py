@@ -122,6 +122,10 @@ class StreamConsumer:
         try:
             raw = fields.get("data", "{}")
             payload: dict[str, Any] = orjson.loads(raw)
+            if not isinstance(payload, dict):
+                # Corrupt or legacy-format message — discard silently
+                await self._client.xack(self._stream, self._group, msg_id)
+                return
             await handler(msg_id, payload)
             await self._client.xack(self._stream, self._group, msg_id)
         except Exception as exc:
