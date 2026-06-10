@@ -4,10 +4,11 @@ import { formatDistanceToNowStrict, format } from "date-fns";
 import {
   Shield, Monitor, User, Globe, Brain, Link2, Clock, Tag,
   AlertTriangle, CheckCircle, XCircle, BarChart2, Send,
-  ExternalLink, ChevronRight, FolderSearch,
+  ExternalLink, ChevronRight, FolderSearch, RotateCcw, Eye,
 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { promoteAlert } from "@/features/investigations/api/investigationsApi";
+import { updateAlert } from "@/services/alertsApi";
 import { cn } from "@/lib/utils";
 import { Drawer } from "@/components/ui/Drawer";
 import { Badge, SeverityBadge } from "@/components/ui/Badge";
@@ -15,18 +16,19 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useAlertDetail, useAlertContext, useAlertTimeline } from "../hooks/useAlerts";
+import { alertsKeys } from "../hooks/useAlerts";
 import type { Alert, AlertTimelineEvent, AIVerdictType, AlertStatus } from "../types";
 
 // ─── Status display ───────────────────────────────────────────────────────────
 
 const STATUS_VARIANT: Record<AlertStatus, "default" | "primary" | "success" | "info"> = {
-  open:        "default",
-  in_progress: "primary",
-  closed:      "success",
-  suppressed:  "info",
+  open:           "default",
+  acknowledged:   "primary",
+  closed:         "success",
+  false_positive: "info",
 };
 const STATUS_LABEL: Record<AlertStatus, string> = {
-  open: "Open", in_progress: "In Progress", closed: "Closed", suppressed: "Suppressed",
+  open: "Open", acknowledged: "Acknowledged", closed: "Closed", false_positive: "False Positive",
 };
 
 // ─── AI verdict display ───────────────────────────────────────────────────────
@@ -368,16 +370,90 @@ function AISection({ alert }: { alert: Alert }) {
 // ─── Section: Analyst ─────────────────────────────────────────────────────────
 
 function AnalystSection({ alert }: { alert: Alert }) {
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(alert.notes ?? "");
+  const qc = useQueryClient();
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Note submission handled by parent via addAlertNote
-    setNote("");
+  const mutation = useMutation({
+    mutationFn: (payload: { status?: string; notes?: string }) =>
+      updateAlert(alert.id, payload),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: alertsKeys.detail(alert.id) });
+      void qc.invalidateQueries({ queryKey: alertsKeys.lists() });
+      void qc.invalidateQueries({ queryKey: ["alerts", "count"] });
+    },
+  });
+
+  const changeStatus = (status: string) => mutation.mutate({ status });
+  const saveNote = () => {
+    if (note.trim() !== (alert.notes ?? "")) {
+      mutation.mutate({ notes: note.trim() });
+    }
   };
+
+  const isLoading = mutation.isPending;
+  const status    = alert.status;
 
   return (
     <div className="space-y-4">
+      {/* Status actions */}
+      <div className="border border-border rounded-lg p-3 space-y-3">
+        <p className="text-2xs text-text-muted uppercase tracking-wider font-medium">
+          Status Actions
+        </p>
+
+        <div className="flex items-center gap-2 mb-2">
+          <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {status === "open" && (
+            <ActionBtn
+              icon={<Eye className="w-3.5 h-3.5" />}
+              label="Acknowledge"
+              color="amber"
+              disabled={isLoading}
+              onClick={() => changeStatus("acknowledged")}
+            />
+          )}
+          {(status === "open" || status === "acknowledged") && (
+            <>
+              <ActionBtn
+                icon={<CheckCircle className="w-3.5 h-3.5" />}
+                label="Close"
+                color="green"
+                disabled={isLoading}
+                onClick={() => changeStatus("closed")}
+              />
+              <ActionBtn
+                icon={<XCircle className="w-3.5 h-3.5" />}
+                label="False Positive"
+                color="blue"
+                disabled={isLoading}
+                onClick={() => changeStatus("false_positive")}
+              />
+            </>
+          )}
+          {(status === "closed" || status === "false_positive" || status === "acknowledged") && (
+            <ActionBtn
+              icon={<RotateCcw className="w-3.5 h-3.5" />}
+              label="Reopen"
+              color="red"
+              disabled={isLoading}
+              onClick={() => changeStatus("open")}
+            />
+          )}
+        </div>
+
+        {mutation.isError && (
+          <p className="text-xs text-severity-critical">
+            Failed to update. Please try again.
+          </p>
+        )}
+        {mutation.isSuccess && (
+          <p className="text-xs text-status-online">Saved.</p>
+        )}
+      </div>
+
       {/* Assignment */}
       <div className="border border-border rounded-lg p-3 space-y-2">
         <p className="text-2xs text-text-muted uppercase tracking-wider font-medium">Assignment</p>
@@ -391,43 +467,60 @@ function AnalystSection({ alert }: { alert: Alert }) {
         </div>
       </div>
 
-      {/* Verdict override */}
+      {/* Notes */}
       <div className="border border-border rounded-lg p-3 space-y-2">
-        <p className="text-2xs text-text-muted uppercase tracking-wider font-medium">Analyst Verdict</p>
-        <div className="flex gap-2">
-          <button className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs rounded-md border border-severity-critical/30 text-severity-critical hover:bg-severity-critical/10 transition-colors">
-            <AlertTriangle className="w-3.5 h-3.5" />
-            True Positive
-          </button>
-          <button className="flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs rounded-md border border-status-online/30 text-status-online hover:bg-status-online/10 transition-colors">
-            <XCircle className="w-3.5 h-3.5" />
-            False Positive
-          </button>
-        </div>
-      </div>
-
-      {/* Note input */}
-      <div className="border border-border rounded-lg p-3 space-y-2">
-        <p className="text-2xs text-text-muted uppercase tracking-wider font-medium">Add Note</p>
-        <form onSubmit={handleSubmit} className="space-y-2">
-          <textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Add an analyst note..."
-            rows={3}
-            className="w-full px-3 py-2 text-sm bg-bg-elevated border border-border rounded-md text-text-primary placeholder:text-text-muted resize-none focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-          <button
-            type="submit"
-            disabled={!note.trim()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            <Send className="w-3 h-3" />
-            Add Note
-          </button>
-        </form>
+        <p className="text-2xs text-text-muted uppercase tracking-wider font-medium">Analyst Notes</p>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          onBlur={saveNote}
+          placeholder="Add analyst notes..."
+          rows={4}
+          className="w-full px-3 py-2 text-sm bg-bg-elevated border border-border rounded-md text-text-primary placeholder:text-text-muted resize-none focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+        <button
+          onClick={saveNote}
+          disabled={isLoading || note.trim() === (alert.notes ?? "")}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <Send className="w-3 h-3" />
+          Save Note
+        </button>
       </div>
     </div>
+  );
+}
+
+// ─── Action button helper ─────────────────────────────────────────────────────
+
+function ActionBtn({
+  icon, label, color, disabled, onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  color: "amber" | "green" | "blue" | "red";
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  const colors = {
+    amber: "border-amber-500/40 text-amber-400 hover:bg-amber-500/10",
+    green: "border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10",
+    blue:  "border-blue-500/40 text-blue-400 hover:bg-blue-500/10",
+    red:   "border-red-500/40 text-red-400 hover:bg-red-500/10",
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        "flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-md border transition-colors",
+        "disabled:opacity-40 disabled:cursor-not-allowed",
+        colors[color]
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 

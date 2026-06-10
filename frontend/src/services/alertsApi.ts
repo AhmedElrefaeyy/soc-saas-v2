@@ -2,76 +2,100 @@ import { apiClient } from "@/api/client";
 import type { APIResponse } from "@/types/api";
 import type {
   Alert,
+  AlertSeverity,
+  AlertStatus,
   AlertListParams,
   AlertListResponse,
-  AlertContext,
-  AlertTimelineEvent,
-  AlertNote,
   BulkActionPayload,
   BulkActionResult,
 } from "@/features/alerts/types";
 
+// ─── Backend → Frontend adapter ───────────────────────────────────────────────
+// Backend returns snake_case PaginatedResponse; frontend needs camelCase Alert
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function adaptAlert(raw: Record<string, any>): Alert {
+  return {
+    id:               String(raw.id ?? ""),
+    tenantId:         String(raw.tenant_id ?? ""),
+    ruleId:           String(raw.rule_id ?? ""),
+    ruleName:         String(raw.rule_name ?? ""),
+    title:            String(raw.title ?? ""),
+    description:      String(raw.description ?? ""),
+    severity:         (raw.severity as AlertSeverity) ?? "low",
+    status:           (raw.status as AlertStatus) ?? "open",
+    hostname:         String(raw.source_host ?? raw.hostname ?? ""),
+    sourceIp:         raw.source_ip ? String(raw.source_ip) : undefined,
+    username:         raw.username ? String(raw.username) : undefined,
+    processName:      raw.process_name ? String(raw.process_name) : undefined,
+    mitre:            undefined,
+    correlationId:    raw.correlation_id ? String(raw.correlation_id) : undefined,
+    correlationScore: raw.correlation_score != null ? Number(raw.correlation_score) : undefined,
+    assignedTo:       raw.assignee_id ? String(raw.assignee_id) : undefined,
+    assignedToName:   raw.assignee_name ? String(raw.assignee_name) : undefined,
+    aiVerdict:        undefined,
+    tags:             Array.isArray(raw.tags) ? (raw.tags as string[]) : [],
+    rawEventCount:    Number(raw.raw_event_count ?? 0),
+    firstSeenAt:      String(raw.first_seen_at ?? raw.created_at ?? ""),
+    lastSeenAt:       String(raw.last_seen_at ?? raw.updated_at ?? ""),
+    createdAt:        String(raw.created_at ?? ""),
+    updatedAt:        String(raw.updated_at ?? ""),
+    acknowledgedAt:   raw.acknowledged_at ? String(raw.acknowledged_at) : undefined,
+    closedAt:         raw.closed_at ? String(raw.closed_at) : undefined,
+    notes:            raw.notes ? String(raw.notes) : undefined,
+  };
+}
+
 // ─── List alerts (paginated, filterable) ──────────────────────────────────────
 
 export async function getAlerts(params: AlertListParams): Promise<AlertListResponse> {
-  const { data } = await apiClient.get<APIResponse<AlertListResponse>>("/alerts", {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await apiClient.get<any>("/alerts", {
     params: {
-      page: params.page ?? 1,
-      page_size: params.pageSize ?? 50,
-      sort: params.sort ?? "-created_at",
-      ...(params.severity?.length && { severity: params.severity.join(",") }),
+      limit: params.pageSize ?? 50,
       ...(params.status?.length && { status: params.status.join(",") }),
-      ...(params.hostname && { hostname: params.hostname }),
-      ...(params.username && { username: params.username }),
-      ...(params.sourceIp && { source_ip: params.sourceIp }),
-      ...(params.mitreTechnique && { mitre_technique: params.mitreTechnique }),
-      ...(params.aiVerdict?.length && { ai_verdict: params.aiVerdict.join(",") }),
-      ...(params.assignedTo && { assigned_to: params.assignedTo }),
-      ...(params.tags?.length && { tags: params.tags.join(",") }),
+      ...(params.severity?.length && { severity: params.severity.join(",") }),
+      ...(params.hostname && { source_host: params.hostname }),
       ...(params.search && { search: params.search }),
-      ...(params.timeRange && { time_range: params.timeRange }),
-      ...(params.correlationId && { correlation_id: params.correlationId }),
+      ...(params.cursor && { cursor: params.cursor }),
     },
   });
-  return data.data!;
+
+  // Backend returns PaginatedResponse: { data: [], next_cursor, has_more, limit }
+  const raw = data.data ?? data;
+  const items: Alert[] = (raw.data ?? []).map(adaptAlert);
+
+  return {
+    items,
+    total:     items.length,
+    page:      1,
+    pageSize:  params.pageSize ?? 50,
+    pageCount: raw.has_more ? 2 : 1,
+    nextCursor: raw.next_cursor ?? undefined,
+  } as AlertListResponse & { nextCursor?: string };
 }
 
 // ─── Single alert detail ──────────────────────────────────────────────────────
 
 export async function getAlertDetail(alertId: string): Promise<Alert> {
-  const { data } = await apiClient.get<APIResponse<Alert>>(`/alerts/${alertId}`);
-  return data.data!;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await apiClient.get<APIResponse<any>>(`/alerts/${alertId}`);
+  return adaptAlert(data.data!);
 }
 
-// ─── Alert investigation context (related alerts, entity graph) ───────────────
+// ─── Update alert status / notes / assignee ───────────────────────────────────
 
-export async function getAlertContext(alertId: string): Promise<AlertContext> {
-  const { data } = await apiClient.get<APIResponse<AlertContext>>(
-    `/alerts/${alertId}/context`
-  );
-  return data.data!;
-}
-
-// ─── Alert timeline ───────────────────────────────────────────────────────────
-
-export async function getAlertTimeline(alertId: string): Promise<AlertTimelineEvent[]> {
-  const { data } = await apiClient.get<APIResponse<AlertTimelineEvent[]>>(
-    `/alerts/${alertId}/timeline`
-  );
-  return data.data!;
-}
-
-// ─── Add analyst note ─────────────────────────────────────────────────────────
-
-export async function addAlertNote(
+export async function updateAlert(
   alertId: string,
-  content: string
-): Promise<AlertNote> {
-  const { data } = await apiClient.post<APIResponse<AlertNote>>(
-    `/alerts/${alertId}/notes`,
-    { content }
-  );
-  return data.data!;
+  payload: { status?: string; notes?: string; assigneeId?: string }
+): Promise<Alert> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await apiClient.patch<APIResponse<any>>(`/alerts/${alertId}`, {
+    ...(payload.status !== undefined && { status: payload.status }),
+    ...(payload.notes !== undefined && { notes: payload.notes }),
+    ...(payload.assigneeId !== undefined && { assignee_id: payload.assigneeId }),
+  });
+  return adaptAlert(data.data!);
 }
 
 // ─── Bulk operations ──────────────────────────────────────────────────────────

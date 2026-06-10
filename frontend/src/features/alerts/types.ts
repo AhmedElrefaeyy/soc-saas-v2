@@ -1,7 +1,7 @@
 // ─── Severity / Status ───────────────────────────────────────────────────────
 
 export type AlertSeverity = "critical" | "high" | "medium" | "low" | "info";
-export type AlertStatus = "open" | "in_progress" | "closed" | "suppressed";
+export type AlertStatus = "open" | "acknowledged" | "closed" | "false_positive";
 export type AIVerdictType = "true_positive" | "false_positive" | "benign" | "pending";
 export type BulkAlertAction =
   | "close"
@@ -56,6 +56,7 @@ export interface Alert {
   updatedAt: string;
   acknowledgedAt?: string;
   closedAt?: string;
+  notes?: string;
 }
 
 // ─── Alert list / pagination ──────────────────────────────────────────────────

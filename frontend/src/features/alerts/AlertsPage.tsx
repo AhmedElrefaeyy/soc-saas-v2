@@ -31,10 +31,10 @@ function useStatusCount(status: AlertStatus) {
 }
 
 const STATUS_ITEMS = [
-  { key: "open"        as AlertStatus, label: "OPEN",        color: "#60A5FA" },
-  { key: "in_progress" as AlertStatus, label: "IN PROGRESS", color: "#F59E0B" },
-  { key: "closed"      as AlertStatus, label: "CLOSED",      color: "#4B5563" },
-  { key: "suppressed"  as AlertStatus, label: "SUPPRESSED",  color: "#FCA5A5" },
+  { key: "open"           as AlertStatus, label: "OPEN",           color: "#60A5FA" },
+  { key: "acknowledged"   as AlertStatus, label: "ACKNOWLEDGED",   color: "#F59E0B" },
+  { key: "closed"         as AlertStatus, label: "CLOSED",         color: "#4B5563" },
+  { key: "false_positive" as AlertStatus, label: "FALSE POSITIVE", color: "#10B981" },
 ] as const;
 
 function StatusKPIBand({
@@ -44,16 +44,16 @@ function StatusKPIBand({
   activeStatus: AlertStatus | null;
   onSelect: (s: AlertStatus | null) => void;
 }) {
-  const open       = useStatusCount("open");
-  const inProgress = useStatusCount("in_progress");
-  const closed     = useStatusCount("closed");
-  const suppressed = useStatusCount("suppressed");
+  const open          = useStatusCount("open");
+  const acknowledged  = useStatusCount("acknowledged");
+  const closed        = useStatusCount("closed");
+  const falsePositive = useStatusCount("false_positive");
 
   const counts: Record<AlertStatus, number> = {
     open,
-    in_progress: inProgress,
+    acknowledged,
     closed,
-    suppressed,
+    false_positive: falsePositive,
   };
 
   return (
