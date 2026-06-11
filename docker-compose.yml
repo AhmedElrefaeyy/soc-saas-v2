@@ -1,10 +1,8 @@
-version: "3.9"
-
 services:
   # ─── PostgreSQL ──────────────────────────────────────────────────────────────
   db:
     image: postgres:16-alpine
-    container_name: soc_db
+    container_name: ${COMPOSE_PROJECT_NAME:-soc}_db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-soc_saas}
@@ -24,7 +22,7 @@ services:
   # ─── Redis ───────────────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: soc_redis
+    container_name: ${COMPOSE_PROJECT_NAME:-soc}_redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
@@ -43,7 +41,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: development
-    container_name: soc_backend
+    container_name: ${COMPOSE_PROJECT_NAME:-soc}_backend
     restart: unless-stopped
     command: uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
     volumes:
@@ -53,7 +51,8 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql://soc_user:soc_secret@db:5432/soc_saas
+      # Use Docker service names — these override backend/.env localhost values
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-soc_user}:${POSTGRES_PASSWORD:-soc_secret}@db:5432/${POSTGRES_DB:-soc_saas}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       db:
@@ -73,7 +72,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
       target: development
-    container_name: soc_worker
+    container_name: ${COMPOSE_PROJECT_NAME:-soc}_worker
     restart: unless-stopped
     command: python -m app.workers.main
     volumes:
@@ -81,7 +80,8 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      - DATABASE_URL=postgresql://soc_user:soc_secret@db:5432/soc_saas
+      # Use Docker service names — these override backend/.env localhost values
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-soc_user}:${POSTGRES_PASSWORD:-soc_secret}@db:5432/${POSTGRES_DB:-soc_saas}
       - REDIS_URL=redis://redis:6379/0
     depends_on:
       db:
@@ -97,7 +97,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: development
-    container_name: soc_frontend
+    container_name: ${COMPOSE_PROJECT_NAME:-soc}_frontend
     restart: unless-stopped
     command: npm run dev -- --host 0.0.0.0
     volumes:
@@ -106,6 +106,7 @@ services:
     ports:
       - "5173:5173"
     environment:
+      # Browser connects to these from the host machine — keep as localhost:<exposed port>
       - VITE_API_URL=http://localhost:8000
       - VITE_WS_URL=ws://localhost:8000
     depends_on:
@@ -119,4 +120,4 @@ volumes:
 
 networks:
   default:
-    name: soc_network
+    name: ${COMPOSE_PROJECT_NAME:-soc}_network

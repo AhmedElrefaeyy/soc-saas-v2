@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "soc-saas-backend"
 version = "2.0.0"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<3.14"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",

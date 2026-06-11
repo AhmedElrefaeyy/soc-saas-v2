@@ -5,6 +5,7 @@ Reads credentials from C:\\ProgramData\\SOCAnalyst\\credentials.json
 Uses V2 backend auth: X-Agent-ID + X-Agent-Token + X-Tenant-ID
 """
 
+import builtins as _builtins
 import datetime
 import hashlib
 import json
@@ -19,50 +20,25 @@ import threading
 import time
 import uuid as _uuid_mod
 
-try:
-    import requests
-except ImportError:
-    os.system(f'"{sys.executable}" -m pip install requests --quiet')
-    import requests
-
 # ── Config ────────────────────────────────────────────────────────────────────
 
-_AGENT_DIR       = r"C:\ProgramData\SOCAnalyst"
+_AGENT_DIR = (
+    r"C:\ProgramData\SOCAnalyst"
+    if platform.system() == "Windows"
+    else "/opt/soc-analyst"
+)
 _CREDS_FILE      = os.path.join(_AGENT_DIR, "credentials.json")
 _LOG_PATH        = os.path.join(_AGENT_DIR, "agent_v2.log")
 _Q_DB_PATH       = os.path.join(_AGENT_DIR, "event_queue_v2.db")
 _CHECKPOINT_FILE = os.path.join(_AGENT_DIR, "checkpoint_v2.json")
 _LOG_MAX_BYTES   = 10 * 1024 * 1024
 
-
-def _load_credentials():
-    if not os.path.exists(_CREDS_FILE):
-        raise RuntimeError(
-            f"Credentials not found at {_CREDS_FILE}. "
-            "Run bootstrap.ps1 first to enroll this device."
-        )
-    with open(_CREDS_FILE, encoding="utf-8-sig") as f:
-        creds = json.load(f)
-    missing = [k for k in ("agent_id", "enrollment_token", "tenant_id", "api_url")
-               if not creds.get(k)]
-    if missing:
-        raise RuntimeError(f"credentials.json missing fields: {missing}")
-    return creds
-
-
-_creds           = _load_credentials()
-API_ENDPOINT     = _creds["api_url"].rstrip("/")
-AGENT_ID         = _creds["agent_id"]
-ENROLLMENT_TOKEN = _creds["enrollment_token"]
-TENANT_ID        = _creds["tenant_id"]
-_HOSTNAME        = _creds.get("hostname") or platform.node()
-_OS_TYPE         = "windows" if platform.system() == "Windows" else platform.system().lower()
-
-# ── Logging ───────────────────────────────────────────────────────────────────
+# ── Logging (set up FIRST so startup crashes are captured in the log) ─────────
 
 
 def _open_log():
     try:
+        os.makedirs(_AGENT_DIR, exist_ok=True)
         return open(_LOG_PATH, "a", encoding="utf-8", errors="replace", buffering=1)
     except Exception:
         return None
@@ -70,7 +46,6 @@ def _open_log():
 
 _LOG_FH = _open_log()
 
-import builtins as _builtins
 _orig_print = _builtins.print
 
 
@@ -102,6 +77,46 @@ def _tee_print(*a, **kw):
 
 
 _builtins.print = _tee_print
+
+# ── Third-party imports (after log setup so failures are captured) ────────────
+
+try:
+    import requests
+except ImportError:
+    print(f"[startup] requests not found — installing via pip...")
+    import subprocess as _sp
+    _sp.run([sys.executable, "-m", "pip", "install", "requests", "--quiet"], check=False)
+    try:
+        import requests
+    except ImportError as _e:
+        print(f"[startup] FATAL: cannot import requests: {_e}")
+        sys.exit(1)
+
+# ── Credentials ───────────────────────────────────────────────────────────────
+
+
+def _load_credentials():
+    if not os.path.exists(_CREDS_FILE):
+        raise RuntimeError(
+            f"Credentials not found at {_CREDS_FILE}. "
+            "Run bootstrap.ps1 first to enroll this device."
+        )
+    with open(_CREDS_FILE, encoding="utf-8-sig") as f:
+        creds = json.load(f)
+    missing = [k for k in ("agent_id", "enrollment_token", "tenant_id", "api_url")
+               if not creds.get(k)]
+    if missing:
+        raise RuntimeError(f"credentials.json missing fields: {missing}")
+    return creds
+
+
+_creds           = _load_credentials()
+API_ENDPOINT     = _creds["api_url"].rstrip("/")
+AGENT_ID         = _creds["agent_id"]
+ENROLLMENT_TOKEN = _creds["enrollment_token"]
+TENANT_ID        = _creds["tenant_id"]
+_HOSTNAME        = _creds.get("hostname") or platform.node()
+_OS_TYPE         = "windows" if platform.system() == "Windows" else platform.system().lower()
 
 
 def _now():

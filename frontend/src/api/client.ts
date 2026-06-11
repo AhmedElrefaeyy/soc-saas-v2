@@ -8,18 +8,22 @@ import { useAuthStore } from "@/stores/authStore";
 import { useTenantStore } from "@/stores/tenantStore";
 import type { APIResponse } from "@/types/api";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+function resolveApiBaseUrl(): string {
+  const url = import.meta.env.VITE_API_URL;
+  if (url) return url;
+  if (import.meta.env.PROD) {
+    throw new Error(
+      "[API] VITE_API_URL is not set. Add it to your Railway frontend Variables (e.g. https://your-backend.up.railway.app).",
+    );
+  }
+  console.warn("[API] VITE_API_URL not set — using http://localhost:8000 for local development.");
+  return "http://localhost:8000";
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 const API_PREFIX = "/api/v1";
 
-// Log the resolved base URL so it's visible in browser DevTools console.
 console.info(`[API] Base URL: ${API_BASE_URL}${API_PREFIX}`);
-if (!import.meta.env.VITE_API_URL) {
-  if (import.meta.env.PROD) {
-    console.error("[API] VITE_API_URL is not set — falling back to http://localhost:8000 which will fail in production. Set VITE_API_URL in Railway frontend Variables.");
-  } else {
-    console.warn("[API] VITE_API_URL not set — using localhost fallback.");
-  }
-}
 
 // ─── Axios instance ───────────────────────────────────────────────────────────
 

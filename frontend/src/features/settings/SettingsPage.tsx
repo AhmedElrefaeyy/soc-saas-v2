@@ -377,7 +377,11 @@ function ApiKeysTab() {
         </div>
         <div style={{ fontSize: 12, color: '#8B95A7', lineHeight: 1.8, fontFamily: "'JetBrains Mono', monospace" }}>
           <div>1. Copy the API key above</div>
-          <div>2. Open <code style={{ color: '#93C5FD' }}>C:\ProgramData\SOCAnalyst\agent_config.py</code></div>
+          <div>2. Open the agent config file:</div>
+          <div style={{ paddingLeft: 16 }}>
+            <div><code style={{ color: '#93C5FD' }}>Windows: C:\ProgramData\SOCAnalyst\agent_config.py</code></div>
+            <div><code style={{ color: '#93C5FD' }}>Linux &nbsp;: /opt/soc-analyst/agent_config.py</code></div>
+          </div>
           <div>3. Set <code style={{ color: '#93C5FD' }}>API_KEY</code> = the copied key</div>
           <div>4. Set <code style={{ color: '#93C5FD' }}>API_ENDPOINT</code> = your backend URL</div>
         </div>

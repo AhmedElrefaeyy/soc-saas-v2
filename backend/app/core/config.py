@@ -82,6 +82,25 @@ class Settings(BaseSettings):
             raise ValueError("JWT_SECRET and JWT_REFRESH_SECRET must be different values")
         return self
 
+    @model_validator(mode="after")
+    def validate_production_config(self) -> "Settings":
+        if not self.is_production:
+            return self
+        if "localhost" in self.REDIS_URL or "127.0.0.1" in self.REDIS_URL:
+            raise ValueError(
+                "REDIS_URL cannot point to localhost in production. "
+                "Set REDIS_URL to your Redis instance URL (e.g. rediss://... on Railway)."
+            )
+        all_localhost = all(
+            "localhost" in o or "127.0.0.1" in o for o in self.ALLOWED_ORIGINS
+        )
+        if all_localhost and not self.CORS_ALLOW_ORIGIN_REGEX:
+            raise ValueError(
+                "In production ALLOWED_ORIGINS must include your frontend URL, "
+                "or CORS_ALLOW_ORIGIN_REGEX must be set."
+            )
+        return self
+
     @property
     def is_production(self) -> bool:
         return self.ENVIRONMENT == "production"

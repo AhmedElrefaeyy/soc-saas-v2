@@ -23,6 +23,11 @@ from app.models import Base
 
 
 # ─── SQLite JSONB compatibility ───────────────────────────────────────────────
+# Unit tests use SQLite in-memory for speed (no Postgres required locally).
+# Integration tests in CI use a real PostgreSQL instance (see .github/workflows/ci.yml).
+# Alembic migrations are NOT run here; Base.metadata.create_all() builds the schema
+# from Python model definitions which use standard SA types, not postgresql-specific ones.
+# The only exception is JSONB — replaced below so SQLite can build the table DDL.
 
 # SQLite does not have a native JSONB type.  Override it with JSON so that
 # Base.metadata.create_all() can build the schema in tests.
