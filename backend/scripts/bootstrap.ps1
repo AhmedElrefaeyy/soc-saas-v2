@@ -57,16 +57,21 @@ if ($existingV1Task) {
     Stop-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue
 }
 
-# Kill lingering python processes running V1 or V2 agent scripts
-$allPyProcs = Get-CimInstance Win32_Process -Filter "Name LIKE 'python%'" -ErrorAction SilentlyContinue
-if ($allPyProcs) {
-    foreach ($proc in $allPyProcs) {
-        if ($proc.CommandLine -like '*soc_agent.py*' -or $proc.CommandLine -like '*soc_agent_v2.py*') {
+# Kill ALL lingering agent-related processes (python + cmd wrappers)
+$allProcs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue
+if ($allProcs) {
+    foreach ($proc in $allProcs) {
+        $cmdLine = $proc.CommandLine
+        if ($cmdLine -like '*soc_agent.py*' -or
+            $cmdLine -like '*soc_agent_v2.py*' -or
+            $cmdLine -like '*run_agent.bat*') {
             Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
             Write-Host "[bootstrap] Stopped agent process (PID $($proc.ProcessId))" -ForegroundColor Yellow
         }
     }
 }
+# Brief pause so killed processes fully release Task Scheduler tracking
+Start-Sleep -Seconds 2
 
 # ── Step 1: Gather machine information ────────────────────────────────────────
 Write-Step "Gathering machine information..."
@@ -257,12 +262,7 @@ if ($needsEmbed) {
 # ── Step 7: Create scheduled task ────────────────────────────────────────────
 Write-Step "Installing scheduled task..."
 
-# Write a .bat launcher so cmd.exe quoting is trivial and all output goes to
-# the log file. Inline cmd /c "..." with nested quotes breaks on Windows.
-$LOG_FILE  = Join-Path $INSTALL_DIR "agent_v2.log"
-$RUN_BAT   = Join-Path $INSTALL_DIR "run_agent.bat"
-$batLines  = "@echo off`r`n`"$pythonExe`" -u `"$AGENT_FILE`" >> `"$LOG_FILE`" 2>&1`r`n"
-[System.IO.File]::WriteAllText($RUN_BAT, $batLines, [System.Text.Encoding]::ASCII)
+$LOG_FILE = Join-Path $INSTALL_DIR "agent_v2.log"
 
 # Remove existing task if present
 $existingTask = Get-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue
@@ -271,7 +271,10 @@ if ($existingTask) {
     Unregister-ScheduledTask -TaskName $TASK_NAME -Confirm:$false -ErrorAction SilentlyContinue
 }
 
-$action  = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$RUN_BAT`""
+# Run Python directly — no cmd.exe wrapper needed.
+# The agent opens its own log file as the very first operation, so all
+# startup errors (including import failures) are captured there.
+$action  = New-ScheduledTaskAction -Execute $pythonExe -Argument "-u `"$AGENT_FILE`""
 $trigger = New-ScheduledTaskTrigger -AtStartup
 
 # Also add an AtLogon trigger so it starts when any user logs in
@@ -283,7 +286,7 @@ $settings = New-ScheduledTaskSettingsSet `
     -RestartInterval          (New-TimeSpan -Minutes 1) `
     -StartWhenAvailable       `
     -RunOnlyIfNetworkAvailable:$false `
-    -MultipleInstances        IgnoreNew
+    -MultipleInstances        Queue
 
 $principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
 
@@ -297,26 +300,27 @@ Register-ScheduledTask `
 
 Write-OK "Scheduled task '$TASK_NAME' installed (runs as SYSTEM at startup)"
 
-# ── Step 8: Start agent now ───────────────────────────────────────────────────
+# ── Step 8: Start agent and verify it is running ─────────────────────────────
 Write-Step "Starting agent..."
 
 Start-ScheduledTask -TaskName $TASK_NAME
 
-# Wait up to 15 seconds for the task to transition from Queued → Running
-$deadline = (Get-Date).AddSeconds(15)
-$state = "Queued"
-while ($state -eq "Queued" -and (Get-Date) -lt $deadline) {
+# Wait up to 20 seconds for Python to create its log file — that is the
+# definitive proof the agent process actually started and is running.
+$deadline = (Get-Date).AddSeconds(20)
+while (-not (Test-Path $LOG_FILE) -and (Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 2
-    $state = (Get-ScheduledTask -TaskName $TASK_NAME).State
 }
 
-if ($state -eq "Running") {
-    Write-OK "Agent task state: Running"
-} elseif ($state -eq "Queued") {
-    Write-Host "[bootstrap] WARN  Task still Queued after 15s - may start on next login/reboot" -ForegroundColor Yellow
-    Write-Host "            Check log: $INSTALL_DIR\agent_v2.log" -ForegroundColor Yellow
+$state = (Get-ScheduledTask -TaskName $TASK_NAME).State
+
+if (Test-Path $LOG_FILE) {
+    Write-OK "Agent is running (log file created)"
+    Get-Content $LOG_FILE -Tail 3 | ForEach-Object { Write-Host "  > $_" -ForegroundColor DarkGray }
 } else {
-    Write-Host "[bootstrap] INFO  Agent task state: $state" -ForegroundColor Cyan
+    Write-Host "[bootstrap] WARN  Agent log not created after 20s (task state: $state)" -ForegroundColor Yellow
+    Write-Host "            The agent will start automatically on next login/reboot." -ForegroundColor Yellow
+    Write-Host "            To diagnose: Get-Content $LOG_FILE" -ForegroundColor DarkGray
 }
 
 # ── Done ──────────────────────────────────────────────────────────────────────
