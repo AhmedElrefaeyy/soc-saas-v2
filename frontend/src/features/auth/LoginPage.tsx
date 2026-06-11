@@ -38,7 +38,6 @@ export function LoginPage() {
       );
 
       // Fetch and auto-select the first tenant so X-Tenant-ID is set immediately.
-      // fetchMyTenants() only needs the Bearer token — no X-Tenant-ID required.
       try {
         const tenants = await fetchMyTenants();
         if (tenants.length > 0) {
@@ -46,12 +45,15 @@ export function LoginPage() {
           const role: MemberRole = "owner";
           setStoreTenant(tenant, role);
           setAuthTenant(tenant.id);
+          navigate(from, { replace: true });
+        } else {
+          // New user — no workspaces yet, send to setup
+          navigate("/setup", { replace: true });
         }
       } catch {
-        // Non-fatal — useTenantInit in AppShell will retry on next render
+        // Non-fatal — navigate to destination; useTenantInit will handle it
+        navigate(from, { replace: true });
       }
-
-      navigate(from, { replace: true });
     } catch (err) {
       setError(extractApiError(err));
     } finally {

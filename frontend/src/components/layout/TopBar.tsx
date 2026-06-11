@@ -136,15 +136,17 @@ function UserMenu() {
 // ─── Tenant selector ──────────────────────────────────────────────────────────
 
 function TenantSelector() {
+  const navigate       = useNavigate();
   const activeTenant   = useTenantStore((s) => s.activeTenant);
   const setStoreTenant = useTenantStore((s) => s.setActiveTenant);
   const setAuthTenant  = useAuthStore((s) => s.setActiveTenant);
 
-  const [open,     setOpen]     = useState(false);
-  const [tenants,  setTenants]  = useState<Tenant[]>([]);
-  const [loading,  setLoading]  = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [newName,  setNewName]  = useState("");
+  const [open,        setOpen]        = useState(false);
+  const [tenants,     setTenants]     = useState<Tenant[]>([]);
+  const [loading,     setLoading]     = useState(false);
+  const [creating,    setCreating]    = useState(false);
+  const [newName,     setNewName]     = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const openDropdown = async () => {
     setOpen(true);
@@ -169,12 +171,14 @@ function TenantSelector() {
   const handleCreate = async () => {
     if (!newName.trim()) return;
     setCreating(true);
+    setCreateError(null);
     try {
       const tenant = await createTenant(newName.trim());
       selectTenant(tenant);
       setNewName("");
-    } catch (err) {
-      console.error("[TenantSelector] create failed:", err);
+      navigate("/dashboard");
+    } catch {
+      setCreateError("Failed to create workspace. Try again.");
     } finally {
       setCreating(false);
     }
@@ -255,27 +259,32 @@ function TenantSelector() {
                     <Plus size={12} /> New workspace
                   </button>
                 ) : (
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <input
-                      autoFocus
-                      className="inp"
-                      style={{ flex: 1, fontSize: 12, height: 30, padding: "0 8px" }}
-                      placeholder="Workspace name"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(false); }}
-                    />
-                    <button
-                      onClick={handleCreate}
-                      disabled={!newName.trim()}
-                      style={{
-                        padding: "0 10px", height: 30, borderRadius: 5, fontSize: 11,
-                        background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)",
-                        color: "#93C5FD", cursor: "pointer",
-                      }}
-                    >
-                      Create
-                    </button>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <input
+                        autoFocus
+                        className="inp"
+                        style={{ flex: 1, fontSize: 12, height: 30, padding: "0 8px" }}
+                        placeholder="Workspace name"
+                        value={newName}
+                        onChange={(e) => { setNewName(e.target.value); setCreateError(null); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(false); }}
+                      />
+                      <button
+                        onClick={handleCreate}
+                        disabled={!newName.trim()}
+                        style={{
+                          padding: "0 10px", height: 30, borderRadius: 5, fontSize: 11,
+                          background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.3)",
+                          color: "#93C5FD", cursor: "pointer",
+                        }}
+                      >
+                        Create
+                      </button>
+                    </div>
+                    {createError && (
+                      <p style={{ margin: 0, fontSize: 11, color: "#F87171" }}>{createError}</p>
+                    )}
                   </div>
                 )}
               </div>

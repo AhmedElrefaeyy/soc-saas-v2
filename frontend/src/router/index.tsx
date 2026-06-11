@@ -138,6 +138,9 @@ const SettingsPage = lazyPage(() =>
 const RulesPage = lazyPage(() =>
   import("@/features/rules/RulesPage").then((m) => ({ default: m.RulesPage }))
 );
+const SetupPage = lazyPage(() =>
+  import("@/features/setup/SetupPage").then((m) => ({ default: m.SetupPage }))
+);
 
 // ─── Loading fallback ─────────────────────────────────────────────────────────
 
@@ -160,6 +163,16 @@ const router = createBrowserRouter([
   { path: "/login",        element: <LoginPage /> },
   { path: "/register",     element: <RegisterPage /> },
   { path: "/unauthorized", element: <Unauthorized /> },
+
+  // Setup — authenticated but no tenant needed
+  {
+    path: "/setup",
+    element: (
+      <AuthGuard>
+        <S><SetupPage /></S>
+      </AuthGuard>
+    ),
+  },
 
   // Protected routes — wrapped in AppShell
   {
