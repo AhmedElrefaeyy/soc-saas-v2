@@ -80,7 +80,7 @@ class DetectionWorker:
                         from app.ai.analyzer import get_analyzer
                         analyzer = get_analyzer()
                         result = await analyzer.analyze(event)
-                        alert.metadata = {**(alert.metadata or {}), "ai_analysis": result.to_dict()}
+                        alert.ai_metadata = {**(alert.ai_metadata or {}), "ai_analysis": result.to_dict()}
                         await db.flush()
                         logger.info(
                             "ai_analysis_complete",

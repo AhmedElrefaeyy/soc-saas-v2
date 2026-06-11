@@ -89,13 +89,13 @@ class Alert(Base, TimestampMixin, SoftDeleteMixin):
     mitre_tactics: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     mitre_techniques: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     suppression_key: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
-    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=None)
+    ai_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True, default=None)
 
     @property
     def ai_analysis(self) -> dict | None:
-        if self.metadata is None:
+        if self.ai_metadata is None:
             return None
-        return self.metadata.get("ai_analysis")
+        return self.ai_metadata.get("ai_analysis")
 
     __table_args__ = (
         Index("idx_alert_tenant_status", "tenant_id", "status"),
