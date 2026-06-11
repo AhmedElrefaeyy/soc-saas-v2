@@ -111,23 +111,25 @@ $enrollmentToken = $resp.data.enrollment_token
 
 if (-not $agentId) { Write-Fail "Enrollment response missing agent_id." }
 
-Write-OK "Enrolled — Agent ID: $agentId"
+Write-OK "Enrolled - Agent ID: $agentId"
 
 # ── Step 3: Prepare install directory ────────────────────────────────────────
 Write-Step "Preparing install directory..."
 
-if (-not (Test-Path $INSTALL_DIR)) {
-    New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
-}
+# Use .NET directly -- avoids New-Item quirks across PS versions
+[System.IO.Directory]::CreateDirectory($INSTALL_DIR) | Out-Null
 
-# Grant Users read/write so the agent (running as SYSTEM) can access all files.
-# Single quotes prevent PowerShell from parsing (OI)(CI) as sub-expressions.
-icacls "$INSTALL_DIR" /grant 'Everyone:(OI)(CI)F' /T 2>$null | Out-Null
+# Grant full access to Everyone so SYSTEM scheduled task can read/write
+# Use cmd.exe to avoid PowerShell parsing (OI)(CI) as sub-expressions
+cmd.exe /c "icacls `"$INSTALL_DIR`" /grant Everyone:(OI)(CI)F /T >nul 2>&1"
 
 Write-OK "Directory ready: $INSTALL_DIR"
 
 # ── Step 4: Write credentials.json WITHOUT BOM ───────────────────────────────
 Write-Step "Storing credentials..."
+
+# Ensure directory exists immediately before writing (safety net)
+[System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($CREDS_FILE)) | Out-Null
 
 $credsJson = [ordered]@{
     agent_id         = $agentId
