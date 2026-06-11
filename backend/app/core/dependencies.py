@@ -14,7 +14,7 @@ from app.core.logging import user_id_ctx
 from app.core.redis import get_redis
 from app.core.security import decode_access_token
 from app.rbac.permissions import Permission
-from app.rbac.roles import has_permission
+from app.rbac.roles import has_permission, get_effective_permissions
 
 logger = structlog.get_logger(__name__)
 
@@ -90,7 +90,7 @@ async def get_current_tenant_member(
 def require_permission(permission: Permission) -> Depends:
     """
     Returns a FastAPI dependency that validates the current member holds
-    the specified permission.
+    the specified permission (including any custom grant/revoke overrides).
 
     Usage in routes:
         member: TenantMember = require_permission(Permission.ALERTS_UPDATE)
@@ -98,7 +98,9 @@ def require_permission(permission: Permission) -> Depends:
     async def _check(
         member: Annotated["TenantMember", Depends(get_current_tenant_member)],  # type: ignore
     ) -> "TenantMember":  # type: ignore[name-defined]
-        if not has_permission(member.role, permission):
+        custom = getattr(member, "custom_permissions", None)
+        effective = get_effective_permissions(member.role, custom)
+        if permission not in effective:
             logger.info(
                 "permission_denied",
                 required_permission=permission.value,

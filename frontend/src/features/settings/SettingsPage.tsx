@@ -2,12 +2,16 @@ import { useState, useEffect } from 'react'
 import {
   User, Building2, Key, Users,
   Plus, Copy, Check, Trash2, CheckCircle,
+  Mail, ChevronDown, ChevronUp, Shield, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { formatRelativeTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { settingsApi } from '@/api/settings'
 import type { UserProfile, TenantInfo, Member, ApiKey, ApiKeyCreateResponse } from '@/api/settings'
+import { invitationsApi } from '@/api/invitations'
+import type { Invitation } from '@/api/invitations'
+import { extractApiError } from '@/lib/utils'
 import { TIMEZONE_OPTIONS } from '@/lib/timezone'
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -416,28 +420,380 @@ function ApiKeysTab() {
   )
 }
 
+// ─── Members Tab constants ────────────────────────────────────────────────────
+
+const PERMISSION_GROUPS: Record<string, string[]> = {
+  'Alerts':          ['alerts:read', 'alerts:update', 'alerts:delete'],
+  'Events':          ['events:read', 'events:export'],
+  'Agents':          ['agents:read', 'agents:manage', 'agents:view_token'],
+  'Detection Rules': ['rules:read', 'rules:manage'],
+  'Team':            ['members:read', 'members:manage', 'invitations:manage'],
+  'Tenant':          ['tenant:settings', 'tenant:delete'],
+  'Audit':           ['audit:read'],
+  'Investigations':  ['investigations:read', 'investigations:update', 'investigations:manage', 'hunt:query'],
+}
+
+const VIEWER_PERMS  = new Set(['alerts:read', 'events:read', 'agents:read', 'rules:read', 'members:read'])
+const ANALYST_PERMS = new Set([...VIEWER_PERMS, 'alerts:update', 'events:export', 'investigations:read', 'investigations:update', 'hunt:query'])
+const ADMIN_PERMS   = new Set([...ANALYST_PERMS, 'alerts:delete', 'agents:manage', 'agents:view_token', 'rules:manage', 'members:manage', 'invitations:manage', 'tenant:settings', 'audit:read', 'investigations:manage'])
+const OWNER_PERMS   = new Set([...ADMIN_PERMS, 'tenant:delete'])
+
+function getRolePerms(role: string): Set<string> {
+  if (role === 'owner')   return OWNER_PERMS
+  if (role === 'admin')   return ADMIN_PERMS
+  if (role === 'analyst') return ANALYST_PERMS
+  return VIEWER_PERMS
+}
+
+const ROLE_COLORS: Record<string, { bg: string; color: string }> = {
+  owner:   { bg: 'rgba(168,85,247,0.1)',  color: '#C084FC' },
+  admin:   { bg: 'rgba(59,130,246,0.1)',  color: '#93C5FD' },
+  analyst: { bg: 'rgba(16,185,129,0.1)',  color: '#6EE7B7' },
+  viewer:  { bg: 'rgba(156,163,175,0.1)', color: '#9CA3AF' },
+}
+
+// ─── Permission Editor ────────────────────────────────────────────────────────
+
+function PermissionEditor({ member, tenantId, onSaved }: {
+  member: Member
+  tenantId: string
+  onSaved: (userId: string, grant: string[], revoke: string[]) => void
+}) {
+  const rolePerms = getRolePerms(member.role)
+  const [grant,   setGrant]   = useState<string[]>(member.custom_permissions?.grant  ?? [])
+  const [revoke,  setRevoke]  = useState<string[]>(member.custom_permissions?.revoke ?? [])
+  const [saving,  setSaving]  = useState(false)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
+
+  const toggle = (perm: string) => {
+    const inRole    = rolePerms.has(perm)
+    const isGranted = grant.includes(perm)
+    const isRevoked = revoke.includes(perm)
+
+    if (inRole) {
+      // Currently active (from role): add to revoke to disable
+      // Currently revoked: remove from revoke to re-enable
+      setRevoke(isRevoked ? revoke.filter(p => p !== perm) : [...revoke, perm])
+    } else {
+      // Not in role: add to grant to enable, remove from grant to disable
+      setGrant(isGranted ? grant.filter(p => p !== perm) : [...grant, perm])
+    }
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    setSaveErr(null)
+    try {
+      await settingsApi.updateMemberPermissions(tenantId, member.user_id, grant, revoke)
+      onSaved(member.user_id, grant, revoke)
+    } catch (err) {
+      setSaveErr(extractApiError(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ padding: '12px 16px 16px', background: 'rgba(0,0,0,0.3)', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+      <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.5px', color: '#5C6373', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Shield size={11} />
+        Permission Overrides
+        <span style={{ fontSize: 9, color: '#3A4150', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+          (role: {member.role})
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 16 }}>
+        {Object.entries(PERMISSION_GROUPS).map(([group, perms]) => (
+          <div key={group}>
+            <div style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: '#5C6373', marginBottom: 8 }}>
+              {group}
+            </div>
+            {perms.map(perm => {
+              const inRole    = rolePerms.has(perm)
+              const isGranted = grant.includes(perm)
+              const isRevoked = revoke.includes(perm)
+              const isActive  = inRole ? !isRevoked : isGranted
+              const isCustom  = (!inRole && isGranted) || (inRole && isRevoked)
+
+              return (
+                <label
+                  key={perm}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '4px 0', cursor: member.role === 'owner' ? 'default' : 'pointer',
+                    opacity: member.role === 'owner' ? 0.4 : 1,
+                  }}
+                >
+                  {/* Toggle */}
+                  <div
+                    onClick={() => member.role !== 'owner' && toggle(perm)}
+                    style={{
+                      width: 28, height: 16, borderRadius: 8, flexShrink: 0,
+                      background: isActive
+                        ? (isCustom ? 'rgba(99,102,241,0.7)' : 'rgba(16,185,129,0.5)')
+                        : 'rgba(255,255,255,0.1)',
+                      border: isCustom ? '1px solid rgba(99,102,241,0.5)' : '1px solid rgba(255,255,255,0.1)',
+                      position: 'relative', transition: 'all 150ms', cursor: 'inherit',
+                    }}
+                  >
+                    <div style={{
+                      position: 'absolute', top: 2, left: isActive ? 12 : 2,
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: isActive ? '#fff' : 'rgba(255,255,255,0.4)',
+                      transition: 'left 150ms',
+                    }} />
+                  </div>
+                  <span style={{
+                    fontSize: 10,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: isActive ? '#B8C0CC' : '#3A4150',
+                  }}>
+                    {perm}
+                  </span>
+                  {isCustom && (
+                    <span style={{
+                      fontSize: 8, padding: '1px 4px', borderRadius: 3,
+                      background: isGranted && !inRole ? 'rgba(99,102,241,0.15)' : 'rgba(239,68,68,0.12)',
+                      color: isGranted && !inRole ? '#818CF8' : '#F87171',
+                      fontWeight: 700,
+                    }}>
+                      {isGranted && !inRole ? '+' : '−'}
+                    </span>
+                  )}
+                </label>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <Button variant="primary" size="sm" loading={saving} onClick={handleSave} disabled={member.role === 'owner'}>
+          Save Permissions
+        </Button>
+        {saveErr && <span style={{ fontSize: 11, color: '#FCA5A5' }}>{saveErr}</span>}
+      </div>
+    </div>
+  )
+}
+
+// ─── Invite Modal ─────────────────────────────────────────────────────────────
+
+function InviteModal({ onClose, onSent }: { onClose: () => void; onSent: (inv: Invitation) => void }) {
+  const [email,   setEmail]   = useState('')
+  const [role,    setRole]    = useState('analyst')
+  const [sending, setSending] = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  const handleSend = async () => {
+    if (!email.trim()) return
+    setSending(true)
+    setError(null)
+    try {
+      const resp = await invitationsApi.send(email.trim().toLowerCase(), role)
+      const inv  = resp.data.data
+      setSuccess(`Invitation sent to ${email}`)
+      onSent(inv)
+      setTimeout(onClose, 1500)
+    } catch (err) {
+      setError(extractApiError(err))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 49 }}
+      />
+      {/* Panel */}
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 400, zIndex: 50,
+        background: '#0D0D0D',
+        border: '1px solid rgba(59,130,246,0.2)',
+        borderRadius: 12,
+        boxShadow: '0 0 40px rgba(59,130,246,0.1)',
+        padding: 24,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 15, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: '#F5F7FA' }}>
+              Invite Member
+            </div>
+            <div style={{ fontSize: 12, color: '#5C6373', marginTop: 2 }}>
+              They'll receive an email with instructions
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#5C6373', cursor: 'pointer' }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        {success ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderRadius: 8, background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)', color: '#6EE7B7', fontSize: 13 }}>
+            <CheckCircle size={15} />
+            {success}
+          </div>
+        ) : (
+          <>
+            <FormField label="Email Address">
+              <input
+                className="inp"
+                style={{ width: '100%' }}
+                type="email"
+                placeholder="colleague@company.com"
+                value={email}
+                onChange={e => { setEmail(e.target.value); setError(null) }}
+                onKeyDown={e => e.key === 'Enter' && handleSend()}
+                autoFocus
+              />
+            </FormField>
+            <FormField label="Role">
+              <select className="inp" style={{ width: '100%' }} value={role} onChange={e => setRole(e.target.value)}>
+                <option value="analyst">Analyst</option>
+                <option value="viewer">Viewer</option>
+                <option value="admin">Admin</option>
+              </select>
+            </FormField>
+
+            {error && (
+              <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', fontSize: 12, color: '#FCA5A5' }}>
+                {error}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <Button variant="ghost" onClick={onClose}>Cancel</Button>
+              <Button variant="primary" loading={sending} disabled={!email.trim()} onClick={handleSend}>
+                <Mail size={13} />
+                Send Invite
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
 // ─── Members Tab ─────────────────────────────────────────────────────────────
 
 function MembersTab() {
   const activeTenantId = useAuthStore(s => s.activeTenantId)
-  const [members, setMembers] = useState<Member[]>([])
-  const [loading, setLoading] = useState(true)
+
+  const [members,      setMembers]      = useState<Member[]>([])
+  const [invitations,  setInvitations]  = useState<Invitation[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [showInvite,   setShowInvite]   = useState(false)
+  const [expandedPerm, setExpandedPerm] = useState<string | null>(null)
 
   useEffect(() => {
     if (!activeTenantId) return
-    settingsApi.getMembers(activeTenantId)
-      .then(setMembers)
-      .catch(console.error)
-      .finally(() => setLoading(false))
+    Promise.all([
+      settingsApi.getMembers(activeTenantId),
+      invitationsApi.list().then(r => r.data.data ?? []),
+    ]).then(([m, inv]) => {
+      setMembers(m)
+      setInvitations(inv)
+    }).catch(console.error).finally(() => setLoading(false))
   }, [activeTenantId])
 
-  return (
-    <div style={{ maxWidth: 600 }}>
-      <SectionHeader title="Members" description="People with access to this workspace" />
+  const handleRevoke = async (invId: string) => {
+    try {
+      await invitationsApi.revoke(invId)
+      setInvitations(prev => prev.filter(i => i.id !== invId))
+    } catch { /* silently ignore */ }
+  }
 
+  const handlePermSaved = (userId: string, grant: string[], revoke: string[]) => {
+    setMembers(prev => prev.map(m =>
+      m.user_id === userId
+        ? { ...m, custom_permissions: { grant, revoke } }
+        : m
+    ))
+    setExpandedPerm(null)
+  }
+
+  const getRoleBadge = (role: string) => {
+    const c = ROLE_COLORS[role] ?? ROLE_COLORS.viewer
+    return (
+      <span style={{
+        fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em',
+        padding: '2px 7px', borderRadius: 4, fontFamily: "'JetBrains Mono', monospace",
+        background: c.bg, color: c.color,
+      }}>
+        {role}
+      </span>
+    )
+  }
+
+  return (
+    <div style={{ maxWidth: 700 }}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 24, paddingBottom: 16, borderBottom: '1px solid rgba(255,255,255,0.06)', marginTop: 24,
+      }}>
+        <div>
+          <h2 style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: '#F5F7FA', marginBottom: 4 }}>
+            Members
+          </h2>
+          <p style={{ fontSize: 12, color: '#5C6373' }}>Manage team access and permissions</p>
+        </div>
+        <Button variant="primary" size="sm" onClick={() => setShowInvite(true)}>
+          <Plus size={13} />
+          Invite Member
+        </Button>
+      </div>
+
+      {showInvite && (
+        <InviteModal
+          onClose={() => setShowInvite(false)}
+          onSent={inv => setInvitations(prev => [inv, ...prev])}
+        />
+      )}
+
+      {/* Pending invitations */}
+      {invitations.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.5px', color: '#5C6373', marginBottom: 10 }}>
+            Pending Invitations
+          </div>
+          <div className="card" style={{ overflow: 'hidden' }}>
+            {invitations.map((inv, i) => (
+              <div
+                key={inv.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                  borderBottom: i < invitations.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none',
+                }}
+              >
+                <Mail size={13} style={{ color: '#5C6373', flexShrink: 0 }} />
+                <span style={{ flex: 1, fontSize: 12, color: '#B8C0CC' }}>{inv.email}</span>
+                {getRoleBadge(inv.role)}
+                <span style={{ fontSize: 10, color: '#5C6373' }}>
+                  expires {formatRelativeTime(inv.expires_at)}
+                </span>
+                <Button variant="ghost" size="icon-sm" title="Revoke" onClick={() => handleRevoke(inv.id)} style={{ color: '#F87171' }}>
+                  <X size={12} />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Members table */}
       {loading ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {[1, 2, 3].map(i => <div key={i} className="skel" style={{ height: 52, borderRadius: 8 }} />)}
+          {[1, 2, 3].map(i => <div key={i} className="skel" style={{ height: 54, borderRadius: 8 }} />)}
         </div>
       ) : members.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '40px 0', color: '#5C6373' }}>
@@ -446,59 +802,84 @@ function MembersTab() {
         </div>
       ) : (
         <div className="card" style={{ overflow: 'hidden' }}>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>MEMBER</th>
-                <th style={{ width: 100 }}>ROLE</th>
-                <th style={{ width: 110 }}>JOINED</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map(m => {
-                const displayName = m.full_name || m.email || 'Unknown'
-                const initial = displayName[0]?.toUpperCase() ?? '?'
-                return (
-                  <tr key={m.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                    <td style={{ padding: '9px 12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                        <div style={{
-                          width: 28, height: 28, borderRadius: '50%',
-                          background: 'linear-gradient(135deg, #2563EB, #38BDF8)',
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0,
-                        }}>
-                          {initial}
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#F5F7FA' }}>
-                            {m.full_name || '—'}
-                          </div>
-                          <div style={{ fontSize: 11, color: '#5C6373' }}>{m.email}</div>
-                        </div>
+          {members.map((m, i) => {
+            const displayName = m.full_name || m.email || 'Unknown'
+            const initial = displayName[0]?.toUpperCase() ?? '?'
+            const isExpanded = expandedPerm === m.user_id
+            const hasCustom = (m.custom_permissions?.grant?.length ?? 0) + (m.custom_permissions?.revoke?.length ?? 0) > 0
+
+            return (
+              <div key={m.id} style={{ borderBottom: i < members.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
+                {/* Row */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 0, padding: '10px 14px' }}>
+                  {/* Avatar + name */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: '50%',
+                      background: 'linear-gradient(135deg, #2563EB, #38BDF8)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0,
+                    }}>
+                      {initial}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#F5F7FA' }}>
+                        {m.full_name || '—'}
                       </div>
-                    </td>
-                    <td style={{ padding: '9px 12px' }}>
-                      <span style={{
-                        fontSize: 9, fontWeight: 700,
-                        textTransform: 'uppercase', letterSpacing: '0.08em',
-                        padding: '2px 7px', borderRadius: 4,
-                        fontFamily: "'JetBrains Mono', monospace",
-                        background: 'rgba(59,130,246,0.1)', color: '#93C5FD',
-                      }}>
-                        {m.role}
-                      </span>
-                    </td>
-                    <td style={{ padding: '9px 12px' }}>
-                      <span style={{ fontSize: 11, color: '#5C6373' }}>
-                        {m.created_at ? formatRelativeTime(m.created_at) : '—'}
-                      </span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+                      <div style={{ fontSize: 10, color: '#5C6373' }}>{m.email}</div>
+                    </div>
+                  </div>
+
+                  {/* Role */}
+                  <div style={{ marginRight: 16 }}>
+                    {getRoleBadge(m.role)}
+                  </div>
+
+                  {/* Custom perms indicator */}
+                  {hasCustom && (
+                    <div style={{
+                      marginRight: 10, fontSize: 9, padding: '1px 6px', borderRadius: 3,
+                      background: 'rgba(99,102,241,0.12)', color: '#818CF8',
+                      border: '1px solid rgba(99,102,241,0.2)', fontWeight: 600,
+                    }}>
+                      CUSTOM
+                    </div>
+                  )}
+
+                  {/* Joined */}
+                  <span style={{ fontSize: 10, color: '#5C6373', marginRight: 14, minWidth: 80, textAlign: 'right' }}>
+                    {m.created_at ? formatRelativeTime(m.created_at) : '—'}
+                  </span>
+
+                  {/* Edit permissions button */}
+                  <button
+                    onClick={() => setExpandedPerm(isExpanded ? null : m.user_id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      padding: '4px 8px', borderRadius: 5, fontSize: 10, cursor: 'pointer',
+                      background: isExpanded ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.04)',
+                      border: `1px solid ${isExpanded ? 'rgba(99,102,241,0.3)' : 'rgba(255,255,255,0.08)'}`,
+                      color: isExpanded ? '#818CF8' : '#5C6373',
+                      fontWeight: 600, transition: 'all 120ms',
+                    }}
+                  >
+                    <Shield size={11} />
+                    Permissions
+                    {isExpanded ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                  </button>
+                </div>
+
+                {/* Permission editor (expandable) */}
+                {isExpanded && activeTenantId && (
+                  <PermissionEditor
+                    member={m}
+                    tenantId={activeTenantId}
+                    onSaved={handlePermSaved}
+                  />
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

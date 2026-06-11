@@ -5,6 +5,7 @@ from app.api.v1 import agents, alerts, events, rules, installer
 from app.api.v1 import investigations, entities
 from app.api.v1 import api_keys
 from app.api.v1.copilot import router as copilot_router
+from app.api.v1.invitations import router as invitations_router
 from app.ingestion.router import router as ingestion_router
 from app.realtime.router import router as ws_router
 
@@ -46,6 +47,9 @@ api_router.include_router(api_keys.router)
 
 # ─── AI Copilot ───────────────────────────────────────────────────────────────
 api_router.include_router(copilot_router)
+
+# ─── Invitations (public accept + authenticated management) ───────────────────
+api_router.include_router(invitations_router)
 
 # ─── Phase 2: WebSocket (registered at root level, no prefix) ────────────────
 api_router.include_router(ws_router)

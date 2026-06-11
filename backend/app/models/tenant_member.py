@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 from app.models.base import Base, TimestampMixin, SoftDeleteMixin
 
@@ -43,6 +43,12 @@ class TenantMember(Base, TimestampMixin, SoftDeleteMixin):
     )
     joined_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    custom_permissions: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=lambda: {"grant": [], "revoke": []},
+        server_default=text('\'{"grant":[],"revoke":[]}\'::jsonb'),
     )
 
     # ─── Constraints ──────────────────────────────────────────────────────────

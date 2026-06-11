@@ -37,6 +37,7 @@ export interface Member {
   created_at: string
   email: string | null
   full_name: string | null
+  custom_permissions?: { grant: string[]; revoke: string[] }
 }
 
 // ─── API Keys ─────────────────────────────────────────────────────────────────
@@ -91,6 +92,9 @@ export const settingsApi = {
 
   removeMember: async (tenantId: string, userId: string) =>
     apiClient.delete(`/tenants/${tenantId}/members/${userId}`),
+
+  updateMemberPermissions: (tenantId: string, userId: string, grant: string[], revoke: string[]) =>
+    apiClient.patch(`/tenants/${tenantId}/members/${userId}/permissions`, { grant, revoke }),
 
   // API Keys  — GET/POST/DELETE /api/v1/api-keys
   listApiKeys: async (): Promise<ApiKey[]> => {

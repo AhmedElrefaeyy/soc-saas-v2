@@ -68,6 +68,7 @@ class MemberResponse(BaseModel):
     # Flattened user fields — populated via join
     email: str | None = None
     full_name: str | None = None
+    custom_permissions: dict = Field(default_factory=lambda: {"grant": [], "revoke": []})
 
 
 class MemberRoleUpdateRequest(BaseModel):

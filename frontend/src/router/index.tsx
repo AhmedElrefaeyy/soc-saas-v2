@@ -141,6 +141,9 @@ const RulesPage = lazyPage(() =>
 const SetupPage = lazyPage(() =>
   import("@/features/setup/SetupPage").then((m) => ({ default: m.SetupPage }))
 );
+const AcceptInvitePage = lazyPage(() =>
+  import("@/features/auth/AcceptInvitePage").then((m) => ({ default: m.AcceptInvitePage }))
+);
 
 // ─── Loading fallback ─────────────────────────────────────────────────────────
 
@@ -160,9 +163,10 @@ function S({ children }: { children: React.ReactNode }) {
 
 const router = createBrowserRouter([
   // Public routes
-  { path: "/login",        element: <LoginPage /> },
-  { path: "/register",     element: <RegisterPage /> },
-  { path: "/unauthorized", element: <Unauthorized /> },
+  { path: "/login",          element: <LoginPage /> },
+  { path: "/register",       element: <RegisterPage /> },
+  { path: "/unauthorized",   element: <Unauthorized /> },
+  { path: "/accept-invite",  element: <S><AcceptInvitePage /></S> },
 
   // Setup — authenticated but no tenant needed
   {

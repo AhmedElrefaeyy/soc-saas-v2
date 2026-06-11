@@ -93,3 +93,30 @@ def role_from_string(value: str) -> Role:
     except ValueError:
         valid = [r.value for r in Role]
         raise ValueError(f"Invalid role '{value}'. Must be one of: {valid}")
+
+
+def get_effective_permissions(
+    role: Role | str,
+    custom_permissions: dict | None = None,
+) -> frozenset[Permission]:
+    """
+    Compute effective permissions = role_base + granted - revoked.
+    custom_permissions format: {"grant": ["alerts:delete"], "revoke": ["events:export"]}
+    """
+    base = get_role_permissions(role)
+    if not custom_permissions:
+        return base
+
+    try:
+        granted = frozenset(
+            Permission(p) for p in custom_permissions.get("grant", [])
+            if p in Permission._value2member_map_
+        )
+        revoked = frozenset(
+            Permission(p) for p in custom_permissions.get("revoke", [])
+            if p in Permission._value2member_map_
+        )
+    except Exception:
+        return base
+
+    return (base | granted) - revoked
