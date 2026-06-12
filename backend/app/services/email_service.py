@@ -93,12 +93,8 @@ async def _send_email(
             import resend as resend_sdk
             resend_sdk.api_key = settings.RESEND_API_KEY
 
-            from_addr = (
-                settings.RESEND_FROM_EMAIL
-                or settings.SMTP_FROM_EMAIL
-                or settings.SMTP_USER
-                or "NEURASHIELD <onboarding@resend.dev>"
-            )
+            # Only use verified Resend domains — never fall back to Gmail/SMTP addresses
+            from_addr = settings.RESEND_FROM_EMAIL or "NEURASHIELD <onboarding@resend.dev>"
 
             params: dict = {
                 "from":    from_addr,
