@@ -50,6 +50,18 @@ class TenantMember(Base, TimestampMixin, SoftDeleteMixin):
         default=lambda: {"grant": [], "revoke": []},
         server_default=text('\'{"grant":[],"revoke":[]}\'::jsonb'),
     )
+    notification_preferences: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=lambda: {
+            "email_high_critical_alerts": True,
+            "email_agent_offline": True,
+            "email_new_investigation": False,
+        },
+        server_default=text(
+            '\'{"email_high_critical_alerts":true,"email_agent_offline":true,"email_new_investigation":false}\'::jsonb'
+        ),
+    )
 
     # ─── Constraints ──────────────────────────────────────────────────────────
     __table_args__ = (

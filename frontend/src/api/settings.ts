@@ -56,6 +56,14 @@ export interface ApiKeyCreateResponse extends ApiKey {
   raw_key: string
 }
 
+// ─── Notification Preferences ─────────────────────────────────────────────────
+
+export interface NotificationPreferences {
+  email_high_critical_alerts: boolean
+  email_agent_offline: boolean
+  email_new_investigation: boolean
+}
+
 // ─── API ──────────────────────────────────────────────────────────────────────
 
 export const settingsApi = {
@@ -112,5 +120,16 @@ export const settingsApi = {
 
   revokeApiKey: async (id: string): Promise<void> => {
     await apiClient.delete(`/api-keys/${id}`)
+  },
+
+  // Notification preferences  — GET/PATCH /api/v1/notifications
+  getNotificationPrefs: async (): Promise<NotificationPreferences> => {
+    const resp = await apiClient.get<{ data: NotificationPreferences }>('/notifications')
+    return resp.data.data!
+  },
+
+  updateNotificationPrefs: async (prefs: Partial<NotificationPreferences>): Promise<NotificationPreferences> => {
+    const resp = await apiClient.patch<{ data: NotificationPreferences }>('/notifications', prefs)
+    return resp.data.data!
   },
 }

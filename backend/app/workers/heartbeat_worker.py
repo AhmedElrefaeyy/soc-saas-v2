@@ -50,7 +50,7 @@ class HeartbeatWorker:
                     Agent.deleted_at.is_(None),
                 )
                 .values(status=AgentStatus.OFFLINE)
-                .returning(Agent.id, Agent.hostname, Agent.tenant_id)
+                .returning(Agent.id, Agent.hostname, Agent.tenant_id, Agent.last_seen_at)
             )
             rows = result.fetchall()
             if rows:
@@ -62,3 +62,17 @@ class HeartbeatWorker:
                         hostname=row.hostname,
                         tenant_id=str(row.tenant_id),
                     )
+                    # Email notification — non-blocking background task
+                    from app.services.notification_service import notify_agent_offline_email
+                    from datetime import timezone
+                    last_seen = (
+                        row.last_seen_at.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+                        if row.last_seen_at
+                        else "Unknown"
+                    )
+                    asyncio.create_task(notify_agent_offline_email(
+                        agent_id=str(row.id),
+                        hostname=row.hostname or "Unknown",
+                        tenant_id=row.tenant_id,
+                        last_seen=last_seen,
+                    ))

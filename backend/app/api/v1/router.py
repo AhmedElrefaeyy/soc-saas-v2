@@ -51,5 +51,9 @@ api_router.include_router(copilot_router)
 # ─── Invitations (public accept + authenticated management) ───────────────────
 api_router.include_router(invitations_router)
 
+# ─── Notification preferences ─────────────────────────────────────────────────
+from app.api.v1.notifications import router as notifications_router
+api_router.include_router(notifications_router)
+
 # ─── Phase 2: WebSocket (registered at root level, no prefix) ────────────────
 api_router.include_router(ws_router)

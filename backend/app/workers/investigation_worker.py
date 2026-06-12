@@ -91,8 +91,17 @@ class InvestigationWorker:
         )
 
         # Persist to DB.
+        is_new_investigation = False
         try:
             async with database_manager.session() as db:
+                # Determine if this is a brand-new investigation before upserting
+                from sqlalchemy import text as _text
+                _check = await db.execute(
+                    _text("SELECT 1 FROM investigations WHERE id = CAST(:id AS uuid)"),
+                    {"id": investigation_id},
+                )
+                is_new_investigation = _check.first() is None
+
                 await self._engine.persist(result, db)
                 await self._persist_full_result(result, db)
                 await db.commit()
@@ -102,6 +111,20 @@ class InvestigationWorker:
                 investigation_id=investigation_id,
                 error=str(exc),
             )
+
+        # Email notification for new investigations — non-blocking
+        if is_new_investigation:
+            try:
+                from app.services.notification_service import notify_investigation_email
+                asyncio.create_task(notify_investigation_email(
+                    investigation_id=investigation_id,
+                    tenant_id=self._tenant_id,
+                    title=result.summary.executive_summary[:100] if result.summary else "New Investigation",
+                    threat_score=result.score.threat_score,
+                    verdict_suggestion=None,  # AI analysis runs later
+                ))
+            except Exception:
+                logger.warning("investigation_email_notify_failed", exc_info=True)
 
         # AI Analysis — only for high-confidence or high-severity investigations
         should_analyze = (

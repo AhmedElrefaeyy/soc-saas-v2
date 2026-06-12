@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import {
-  User, Building2, Key, Users,
+  User, Building2, Key, Users, Bell,
   Plus, Copy, Check, Trash2, CheckCircle,
   Mail, ChevronDown, ChevronUp, Shield, X,
 } from 'lucide-react'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { formatRelativeTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
 import { settingsApi } from '@/api/settings'
-import type { UserProfile, TenantInfo, Member, ApiKey, ApiKeyCreateResponse } from '@/api/settings'
+import type { UserProfile, TenantInfo, Member, ApiKey, ApiKeyCreateResponse, NotificationPreferences } from '@/api/settings'
 import { invitationsApi } from '@/api/invitations'
 import type { Invitation } from '@/api/invitations'
 import { extractApiError } from '@/lib/utils'
@@ -886,13 +886,169 @@ function MembersTab() {
   )
 }
 
+// ─── Notifications Tab ────────────────────────────────────────────────────────
+
+function NotifToggle({ on, onChange }: { on: boolean; onChange: () => void }) {
+  return (
+    <div
+      onClick={onChange}
+      style={{
+        width: 36, height: 20, borderRadius: 10, flexShrink: 0,
+        background: on ? '#3B82F6' : 'rgba(255,255,255,0.1)',
+        border: `1px solid ${on ? '#2563EB' : 'rgba(255,255,255,0.1)'}`,
+        position: 'relative', cursor: 'pointer',
+        transition: 'background 150ms, border 150ms',
+      }}
+    >
+      <div style={{
+        position: 'absolute', top: 3, left: on ? 17 : 3,
+        width: 14, height: 14, borderRadius: '50%', background: '#fff',
+        transition: 'left 150ms',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
+      }} />
+    </div>
+  )
+}
+
+const NOTIF_ITEMS: Array<{
+  key: keyof NotificationPreferences
+  label: string
+  description: string
+}> = [
+  {
+    key: 'email_high_critical_alerts',
+    label: 'High / Critical Alerts',
+    description: 'Get notified when a HIGH or CRITICAL alert fires',
+  },
+  {
+    key: 'email_agent_offline',
+    label: 'Agent Offline',
+    description: 'Get notified when a monitored device goes offline',
+  },
+  {
+    key: 'email_new_investigation',
+    label: 'New Investigations',
+    description: 'Get notified when a new investigation is created',
+  },
+]
+
+function NotificationsTab() {
+  const user = useAuthStore(s => s.user)
+  const [prefs,   setPrefs]   = useState<NotificationPreferences | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving,  setSaving]  = useState(false)
+  const [saved,   setSaved]   = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+
+  useEffect(() => {
+    settingsApi.getNotificationPrefs()
+      .then(p => setPrefs(p))
+      .catch(() => setPrefs({
+        email_high_critical_alerts: true,
+        email_agent_offline: true,
+        email_new_investigation: false,
+      }))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const toggle = (key: keyof NotificationPreferences) => {
+    if (!prefs) return
+    setPrefs({ ...prefs, [key]: !prefs[key] })
+  }
+
+  const handleSave = async () => {
+    if (!prefs) return
+    setSaving(true)
+    setError(null)
+    try {
+      await settingsApi.updateNotificationPrefs(prefs)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setError(extractApiError(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 480 }}>
+      <SectionHeader
+        title="Email Notifications"
+        description="Configure which events trigger email alerts"
+      />
+
+      {loading ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {[1, 2, 3].map(i => <div key={i} className="skel" style={{ height: 56, borderRadius: 8 }} />)}
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 24 }}>
+          {NOTIF_ITEMS.map(item => (
+            <div
+              key={item.key}
+              className="card"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '14px 16px', cursor: 'pointer',
+              }}
+              onClick={() => toggle(item.key)}
+            >
+              <div style={{ flex: 1, paddingRight: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#F5F7FA', marginBottom: 2 }}>
+                  {item.label}
+                </div>
+                <div style={{ fontSize: 11, color: '#5C6373' }}>
+                  {item.description}
+                </div>
+              </div>
+              <NotifToggle
+                on={prefs?.[item.key] ?? false}
+                onChange={() => toggle(item.key)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* SMTP info bar */}
+      <div style={{
+        padding: '10px 14px', marginBottom: 20, borderRadius: 8,
+        background: 'rgba(245,158,11,0.06)',
+        border: '1px solid rgba(245,158,11,0.15)',
+        display: 'flex', alignItems: 'flex-start', gap: 8,
+      }}>
+        <Mail size={13} style={{ color: '#F59E0B', marginTop: 2, flexShrink: 0 }} />
+        <div>
+          <div style={{ fontSize: 12, color: '#FCD34D', fontWeight: 600, marginBottom: 2 }}>
+            Emails sent to: {user?.email ?? '—'}
+          </div>
+          <div style={{ fontSize: 11, color: '#8B95A7' }}>
+            Configure SMTP_HOST, SMTP_USER, and SMTP_PASSWORD in Railway Variables
+            to enable email delivery
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div style={{ marginBottom: 12, fontSize: 12, color: '#FCA5A5' }}>{error}</div>
+      )}
+
+      <Button variant="primary" loading={saving} onClick={handleSave} disabled={loading}>
+        {saved ? <><Check size={13} /> Saved</> : 'Save Preferences'}
+      </Button>
+    </div>
+  )
+}
+
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'profile',  label: 'Profile',      icon: User      },
-  { id: 'org',      label: 'Organization', icon: Building2 },
-  { id: 'api-keys', label: 'API Keys',     icon: Key       },
-  { id: 'members',  label: 'Members',      icon: Users     },
+  { id: 'profile',       label: 'Profile',       icon: User      },
+  { id: 'org',           label: 'Organization',  icon: Building2 },
+  { id: 'api-keys',      label: 'API Keys',      icon: Key       },
+  { id: 'members',       label: 'Members',       icon: Users     },
+  { id: 'notifications', label: 'Notifications', icon: Bell      },
 ] as const
 
 type TabId = typeof TABS[number]['id']
@@ -945,10 +1101,11 @@ export function SettingsPage() {
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 32px 32px' }}>
-        {activeTab === 'profile'  && <ProfileTab  />}
-        {activeTab === 'org'      && <OrgTab      />}
-        {activeTab === 'api-keys' && <ApiKeysTab  />}
-        {activeTab === 'members'  && <MembersTab  />}
+        {activeTab === 'profile'       && <ProfileTab       />}
+        {activeTab === 'org'           && <OrgTab           />}
+        {activeTab === 'api-keys'      && <ApiKeysTab       />}
+        {activeTab === 'members'       && <MembersTab       />}
+        {activeTab === 'notifications' && <NotificationsTab />}
       </div>
     </div>
   )

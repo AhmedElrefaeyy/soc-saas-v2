@@ -93,6 +93,20 @@ class DetectionWorker:
 
                 await db.commit()
 
+                # Email notifications for HIGH/CRITICAL alerts — non-blocking
+                from app.models.alert import AlertSeverity
+                from app.services.notification_service import notify_alert_email
+                for alert in alerts:
+                    if alert.severity in (AlertSeverity.HIGH, AlertSeverity.CRITICAL):
+                        asyncio.create_task(notify_alert_email(
+                            alert_id=str(alert.id),
+                            tenant_id=tenant_uuid,
+                            alert_title=alert.title or "Security Alert",
+                            severity=alert.severity.value,
+                            source_host=alert.source_host,
+                            ai_metadata=alert.ai_metadata,
+                        ))
+
                 # Fan out to WebSocket clients
                 ws_client = TenantRedisClient(redis, tenant_id_str, "pipeline")
                 for alert in alerts:
