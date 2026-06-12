@@ -141,9 +141,10 @@ async def send_invitation(
 
     await send_invitation_email(
         to_email=payload.email,
-        invited_by_name=current_user.full_name,
+        invited_by_name=current_user.full_name or current_user.email,
         tenant_name=tenant.name,
         accept_url=accept_url,
+        role=payload.role,
         expires_hours=INVITE_EXPIRY_HOURS,
     )
 
