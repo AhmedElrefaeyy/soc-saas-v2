@@ -1,5 +1,5 @@
 """
-Email service — SMTP with fallback to log-only mode.
+Email service — SMTP with HTML templates and plain-text fallback.
 Never raises — email failure must never block business logic.
 """
 from __future__ import annotations
@@ -10,13 +10,81 @@ from app.core.config import get_settings
 log = structlog.get_logger(__name__)
 
 
+# ─── HTML wrapper ─────────────────────────────────────────────────────────────
+
+def _html_wrapper(title: str, content: str, cta_url: str = "", cta_text: str = "") -> str:
+    cta_block = ""
+    if cta_url and cta_text:
+        cta_block = f"""
+        <div style="text-align:center;margin:28px 0;">
+          <a href="{cta_url}" style="background:#6366F1;color:#ffffff;
+             padding:12px 28px;border-radius:6px;text-decoration:none;
+             font-weight:600;font-size:14px;display:inline-block;
+             letter-spacing:0.3px;">
+            {cta_text}
+          </a>
+        </div>"""
+
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+</head>
+<body style="margin:0;padding:0;background:#0A0A0A;
+             font-family:'Segoe UI',Helvetica,Arial,sans-serif;">
+  <div style="max-width:540px;margin:40px auto;padding:0 16px;">
+
+    <!-- Logo -->
+    <div style="text-align:center;margin-bottom:28px;">
+      <div style="font-size:22px;font-weight:800;color:#F5F7FA;
+                  letter-spacing:-0.5px;">
+        NEURA<span style="color:#6366F1;">SHIELD</span>
+      </div>
+      <div style="font-size:10px;color:#5C6373;margin-top:3px;
+                  text-transform:uppercase;letter-spacing:2.5px;">
+        AI SOC Platform
+      </div>
+    </div>
+
+    <!-- Card -->
+    <div style="background:#111318;border:1px solid rgba(255,255,255,0.08);
+                border-radius:12px;padding:32px 28px;">
+      <h2 style="color:#F5F7FA;font-size:17px;margin:0 0 20px;
+                 font-weight:700;line-height:1.3;">
+        {title}
+      </h2>
+      {content}
+      {cta_block}
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align:center;margin-top:24px;padding-bottom:40px;">
+      <p style="color:#3A4150;font-size:11px;margin:0;line-height:1.6;">
+        NEURASHIELD AI SOC Platform &nbsp;&middot;&nbsp; Automated notification<br>
+        You're receiving this as a workspace member.
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>"""
+
+
 # ─── Internal SMTP helper ─────────────────────────────────────────────────────
 
-async def _send_email(to_email: str, subject: str, body: str) -> bool:
-    """Try SMTP; fall back to logging the content. Returns True on success."""
+async def _send_email(
+    to_email: str,
+    subject: str,
+    body_text: str,
+    body_html: str = "",
+) -> bool:
+    """Try SMTP with HTML+plain-text; fall back to logging. Returns True on success."""
     settings = get_settings()
+    from_name = "NEURASHIELD SOC"
+    from_addr = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
 
-    if settings.SMTP_HOST and settings.SMTP_USER:
+    if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
         try:
             import aiosmtplib
             from email.mime.multipart import MIMEMultipart
@@ -24,31 +92,30 @@ async def _send_email(to_email: str, subject: str, body: str) -> bool:
 
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"]    = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
+            msg["From"]    = f"{from_name} <{from_addr}>"
             msg["To"]      = to_email
-            msg.attach(MIMEText(body, "plain"))
+
+            msg.attach(MIMEText(body_text, "plain", "utf-8"))
+            if body_html:
+                msg.attach(MIMEText(body_html, "html", "utf-8"))
 
             await aiosmtplib.send(
                 msg,
                 hostname=settings.SMTP_HOST,
-                port=settings.SMTP_PORT,
+                port=int(settings.SMTP_PORT),
                 username=settings.SMTP_USER,
                 password=settings.SMTP_PASSWORD,
-                use_tls=settings.SMTP_PORT == 465,
-                start_tls=settings.SMTP_PORT == 587,
-                timeout=10,
+                use_tls=int(settings.SMTP_PORT) == 465,
+                start_tls=int(settings.SMTP_PORT) == 587,
+                timeout=15,
             )
             log.info("email_sent", to=to_email, subject=subject[:60])
             return True
         except Exception as exc:
             log.warning("email_smtp_failed", to=to_email, error=str(exc))
+            return False
 
-    log.info(
-        "email_fallback_log",
-        to=to_email,
-        subject=subject,
-        note="Configure SMTP_HOST/SMTP_USER/SMTP_PASSWORD to send real emails",
-    )
+    log.info("email_fallback_log", to=to_email, subject=subject[:80])
     return False
 
 
@@ -59,25 +126,52 @@ async def send_invitation_email(
     invited_by_name: str,
     tenant_name: str,
     accept_url: str,
+    role: str = "analyst",
     expires_hours: int = 48,
 ) -> bool:
     """Send a workspace invitation email."""
     subject = f"You're invited to join {tenant_name} on NEURASHIELD"
-    body = f"""Hi there,
+
+    body_text = f"""Hi,
 
 {invited_by_name} has invited you to join {tenant_name} on NEURASHIELD SOC Platform.
 
-Click the link below to accept your invitation:
+Role: {role.capitalize()}
+
+Accept your invitation:
 {accept_url}
 
 This invitation expires in {expires_hours} hours.
 
-If you don't have an account, you'll be able to create one after clicking the link.
-If you already have an account, you'll be asked to log in.
-
--- NEURASHIELD Team
+-- NEURASHIELD SOC Platform
 """
-    return await _send_email(to_email=to_email, subject=subject, body=body)
+
+    content_html = f"""
+<p style="color:#B8C0CC;font-size:14px;line-height:1.7;margin:0 0 20px;">
+  <strong style="color:#F5F7FA;">{invited_by_name}</strong> has invited
+  you to join <strong style="color:#F5F7FA;">{tenant_name}</strong>
+  on NEURASHIELD SOC Platform.
+</p>
+<div style="background:rgba(99,102,241,0.1);
+            border:1px solid rgba(99,102,241,0.25);
+            border-radius:8px;padding:14px 16px;margin-bottom:20px;">
+  <div style="font-size:11px;color:#5C6373;text-transform:uppercase;
+              letter-spacing:1px;margin-bottom:4px;">Your role</div>
+  <div style="font-size:14px;font-weight:600;color:#F5F7FA;
+              text-transform:capitalize;">{role}</div>
+</div>
+<p style="color:#5C6373;font-size:12px;line-height:1.6;margin:0;">
+  This invitation expires in {expires_hours} hours.<br>
+  If you already have an account, you'll be asked to sign in.
+</p>
+"""
+    body_html = _html_wrapper(
+        title=f"You're invited to {tenant_name}",
+        content=content_html,
+        cta_url=accept_url,
+        cta_text="Accept Invitation →",
+    )
+    return await _send_email(to_email, subject, body_text, body_html)
 
 
 async def send_alert_email(
@@ -92,25 +186,58 @@ async def send_alert_email(
 ) -> bool:
     """Send email when a HIGH/CRITICAL alert fires."""
     severity_upper = severity.upper()
-    emoji = "🔴" if severity_upper == "CRITICAL" else "🟠"
+    sev_colors: dict[str, tuple[str, str]] = {
+        "CRITICAL": ("#EF4444", "rgba(239,68,68,0.15)"),
+        "HIGH":     ("#F97316", "rgba(249,115,22,0.15)"),
+        "MEDIUM":   ("#F59E0B", "rgba(245,158,11,0.15)"),
+        "LOW":      ("#3B82F6", "rgba(59,130,246,0.15)"),
+    }
+    sev_color, sev_bg = sev_colors.get(severity_upper, ("#6366F1", "rgba(99,102,241,0.15)"))
 
-    subject = f"{emoji} [{severity_upper}] Security Alert: {alert_title}"
-    body = f"""Hi {recipient_name},
+    subject = f"[{severity_upper}] Security Alert: {alert_title}"
+    body_text = (
+        f"Security alert on {source_host or 'unknown host'}: {alert_title}\n"
+        f"View: {alert_url}"
+    )
 
-A {severity_upper} security alert has been triggered on NEURASHIELD.
+    rows: list[tuple[str, str]] = []
+    if source_host:
+        rows.append(("Host", source_host))
+    if mitre_technique:
+        rows.append(("MITRE Technique", mitre_technique))
+    if recommended_action:
+        rows.append(("Recommended Action", recommended_action))
 
-Alert: {alert_title}
-Severity: {severity_upper}
-Host: {source_host or "Unknown"}
-{f"MITRE Technique: {mitre_technique}" if mitre_technique else ""}
-{f"Recommended Action: {recommended_action}" if recommended_action else ""}
+    rows_html = "".join(f"""
+    <div style="display:flex;justify-content:space-between;
+                padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+      <span style="color:#5C6373;font-size:12px;">{k}</span>
+      <span style="color:#F5F7FA;font-size:12px;font-weight:500;">{v}</span>
+    </div>""" for k, v in rows)
 
-View and respond to this alert:
-{alert_url}
-
--- NEURASHIELD SOC Platform
+    content_html = f"""
+<div style="display:inline-block;padding:4px 12px;border-radius:4px;
+            background:{sev_bg};border:1px solid {sev_color}33;
+            color:{sev_color};font-size:11px;font-weight:700;
+            letter-spacing:1px;margin-bottom:20px;">
+  {severity_upper}
+</div>
+<p style="color:#F5F7FA;font-size:15px;font-weight:600;
+          margin:0 0 20px;line-height:1.4;">
+  {alert_title}
+</p>
+<div style="border:1px solid rgba(255,255,255,0.06);
+            border-radius:8px;padding:0 16px;margin-bottom:8px;">
+  {rows_html}
+</div>
 """
-    return await _send_email(to_email=to_email, subject=subject, body=body)
+    body_html = _html_wrapper(
+        title="Security Alert Detected",
+        content=content_html,
+        cta_url=alert_url,
+        cta_text="View Alert →",
+    )
+    return await _send_email(to_email, subject, body_text, body_html)
 
 
 async def send_agent_offline_email(
@@ -122,22 +249,33 @@ async def send_agent_offline_email(
 ) -> bool:
     """Send email when an agent goes offline."""
     subject = f"Agent Offline: {hostname}"
-    body = f"""Hi {recipient_name},
+    body_text = f"Agent {hostname} went offline. Last seen: {last_seen}\nView: {agents_url}"
 
-A monitored device has gone offline on NEURASHIELD.
-
-Hostname: {hostname}
-Last Seen: {last_seen}
-
-This may indicate: network connectivity issue, system shutdown,
-or agent process termination.
-
-View agent status:
-{agents_url}
-
--- NEURASHIELD SOC Platform
+    content_html = f"""
+<div style="background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.25);
+            border-radius:8px;padding:16px;margin-bottom:20px;">
+  <div style="font-size:11px;color:#5C6373;text-transform:uppercase;
+              letter-spacing:1px;margin-bottom:6px;">Offline Device</div>
+  <div style="font-size:18px;font-weight:700;color:#F5F7FA;
+              font-family:'Courier New',monospace;">
+    {hostname}
+  </div>
+  <div style="font-size:12px;color:#F97316;margin-top:6px;">
+    Last seen: {last_seen}
+  </div>
+</div>
+<p style="color:#B8C0CC;font-size:13px;line-height:1.6;margin:0;">
+  This may indicate a network issue, system shutdown, or agent process termination.
+  Check the device and restart the agent if needed.
+</p>
 """
-    return await _send_email(to_email=to_email, subject=subject, body=body)
+    body_html = _html_wrapper(
+        title="⚠️ Agent Went Offline",
+        content=content_html,
+        cta_url=agents_url,
+        cta_text="View Agents →",
+    )
+    return await _send_email(to_email, subject, body_text, body_html)
 
 
 async def send_investigation_email(
@@ -150,25 +288,57 @@ async def send_investigation_email(
 ) -> bool:
     """Send email when a new investigation is created."""
     subject = f"New Investigation: {investigation_title}"
+
+    verdict_map = {
+        "true_positive":       ("Likely True Positive",  "#EF4444", "rgba(239,68,68,0.12)"),
+        "false_positive":      ("Likely False Positive",  "#10B981", "rgba(16,185,129,0.12)"),
+        "needs_investigation": ("Needs Investigation",    "#F59E0B", "rgba(245,158,11,0.12)"),
+    }
+
+    verdict_html = ""
     verdict_text = ""
-    if verdict_suggestion:
-        verdict_map = {
-            "true_positive":       "Likely True Positive",
-            "false_positive":      "Likely False Positive",
-            "needs_investigation": "Needs Investigation",
-        }
-        verdict_text = f"\nAI Verdict: {verdict_map.get(verdict_suggestion, verdict_suggestion)}"
+    if verdict_suggestion and verdict_suggestion in verdict_map:
+        label, color, bg = verdict_map[verdict_suggestion]
+        verdict_html = f"""
+<div style="display:inline-block;padding:4px 12px;border-radius:4px;
+            background:{bg};border:1px solid {color}33;
+            color:{color};font-size:11px;font-weight:700;
+            letter-spacing:0.5px;margin-bottom:16px;">
+  {label}
+</div>"""
+        verdict_text = f"\nAI Verdict: {label}"
 
-    body = f"""Hi {recipient_name},
+    # Score bar
+    bar_pct = min(100, max(0, threat_score))
+    bar_color = "#EF4444" if bar_pct >= 75 else "#F59E0B" if bar_pct >= 50 else "#3B82F6"
 
-A new security investigation has been created on NEURASHIELD.
+    body_text = (
+        f"New investigation: {investigation_title}\n"
+        f"Threat Score: {threat_score}/100{verdict_text}\n"
+        f"Review: {investigation_url}"
+    )
 
-Investigation: {investigation_title}
-Threat Score: {threat_score}/100{verdict_text}
-
-Review the full investigation:
-{investigation_url}
-
--- NEURASHIELD SOC Platform
+    content_html = f"""
+<p style="color:#B8C0CC;font-size:14px;line-height:1.6;margin:0 0 20px;">
+  {investigation_title}
+</p>
+{verdict_html}
+<div style="margin-bottom:20px;">
+  <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+    <span style="font-size:11px;color:#5C6373;text-transform:uppercase;
+                 letter-spacing:1px;">Threat Score</span>
+    <span style="font-size:13px;font-weight:700;color:{bar_color};">{threat_score}/100</span>
+  </div>
+  <div style="background:rgba(255,255,255,0.06);border-radius:3px;height:6px;">
+    <div style="background:{bar_color};width:{bar_pct}%;height:6px;
+                border-radius:3px;"></div>
+  </div>
+</div>
 """
-    return await _send_email(to_email=to_email, subject=subject, body=body)
+    body_html = _html_wrapper(
+        title="New Security Investigation",
+        content=content_html,
+        cta_url=investigation_url,
+        cta_text="Review Investigation →",
+    )
+    return await _send_email(to_email, subject, body_text, body_html)
