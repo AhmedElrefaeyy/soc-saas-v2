@@ -70,9 +70,13 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = ""
 
-    # ─── Resend (preferred — works on Railway, no SMTP port blocking) ─────────
+    # ─── Brevo (primary email provider — no domain verification needed) ────────
+    BREVO_API_KEY:    str = ""
+    BREVO_FROM_EMAIL: str = ""    # e.g. "ai.soc.anlaylst.team@gmail.com"
+
+    # ─── Resend (fallback — requires verified domain for non-owner recipients) ─
     RESEND_API_KEY:    str = ""
-    RESEND_FROM_EMAIL: str = ""   # e.g. "NEURASHIELD <noreply@yourdomain.com>"
+    RESEND_FROM_EMAIL: str = ""
 
     # ─── Frontend ─────────────────────────────────────────────────────────────
     FRONTEND_URL: str = "http://localhost:5173"

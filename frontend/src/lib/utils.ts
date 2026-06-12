@@ -16,19 +16,33 @@ export function formatDate(date: string | Date): string {
 }
 
 export function formatRelativeTime(date: string | Date): string {
-  const now = Date.now();
+  const now  = Date.now();
   const then = new Date(date).getTime();
-  const diff = now - then;
+  const diff = now - then; // positive = past, negative = future
 
+  // Future date (e.g. invitation expiry)
+  if (diff < 0) {
+    const abs     = Math.abs(diff);
+    const seconds = Math.floor(abs / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours   = Math.floor(minutes / 60);
+    const days    = Math.floor(hours / 24);
+    if (seconds < 60)  return "in a moment";
+    if (minutes < 60)  return `in ${minutes}m`;
+    if (hours < 24)    return `in ${hours}h`;
+    if (days < 7)      return `in ${days}d`;
+    return formatDate(date);
+  }
+
+  // Past date
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  const days = Math.floor(hours / 24);
-
+  const hours   = Math.floor(minutes / 60);
+  const days    = Math.floor(hours / 24);
   if (seconds < 60) return "just now";
   if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  if (days < 7) return `${days}d ago`;
+  if (hours < 24)   return `${hours}h ago`;
+  if (days < 7)     return `${days}d ago`;
   return formatDate(date);
 }
 
