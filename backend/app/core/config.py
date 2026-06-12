@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = ""
 
+    # ─── Resend (preferred — works on Railway, no SMTP port blocking) ─────────
+    RESEND_API_KEY:    str = ""
+    RESEND_FROM_EMAIL: str = ""   # e.g. "NEURASHIELD <noreply@yourdomain.com>"
+
     # ─── Frontend ─────────────────────────────────────────────────────────────
     FRONTEND_URL: str = "http://localhost:5173"
 

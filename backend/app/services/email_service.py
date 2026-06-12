@@ -1,5 +1,6 @@
 """
-Email service — SMTP with HTML templates and plain-text fallback.
+Email service — Resend (primary) with SMTP fallback.
+Resend uses HTTPS so it works on Railway without port-blocking issues.
 Never raises — email failure must never block business logic.
 """
 from __future__ import annotations
@@ -71,7 +72,7 @@ def _html_wrapper(title: str, content: str, cta_url: str = "", cta_text: str = "
 </html>"""
 
 
-# ─── Internal SMTP helper ─────────────────────────────────────────────────────
+# ─── Internal send helper ─────────────────────────────────────────────────────
 
 async def _send_email(
     to_email: str,
@@ -79,22 +80,54 @@ async def _send_email(
     body_text: str,
     body_html: str = "",
 ) -> bool:
-    """Try SMTP with HTML+plain-text; fall back to logging. Returns True on success."""
+    """
+    Try Resend first (HTTPS, works on Railway).
+    Fall back to SMTP for local dev.
+    Returns True on success.
+    """
     settings = get_settings()
-    from_name = "NEURASHIELD SOC"
-    from_addr = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
 
+    # ── Resend (preferred — no SMTP port issues) ──────────────────────────────
+    if settings.RESEND_API_KEY:
+        try:
+            import resend as resend_sdk
+            resend_sdk.api_key = settings.RESEND_API_KEY
+
+            from_addr = (
+                settings.RESEND_FROM_EMAIL
+                or settings.SMTP_FROM_EMAIL
+                or settings.SMTP_USER
+                or "NEURASHIELD <onboarding@resend.dev>"
+            )
+
+            params: dict = {
+                "from":    from_addr,
+                "to":      [to_email],
+                "subject": subject,
+                "text":    body_text,
+            }
+            if body_html:
+                params["html"] = body_html
+
+            resend_sdk.Emails.send(params)
+            log.info("email_sent_resend", to=to_email, subject=subject[:60])
+            return True
+        except Exception as exc:
+            log.warning("email_resend_failed", to=to_email, error=str(exc))
+            return False
+
+    # ── SMTP fallback (local dev only) ────────────────────────────────────────
     if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
         try:
             import aiosmtplib
             from email.mime.multipart import MIMEMultipart
             from email.mime.text import MIMEText
 
+            from_addr = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject
-            msg["From"]    = f"{from_name} <{from_addr}>"
+            msg["From"]    = f"NEURASHIELD SOC <{from_addr}>"
             msg["To"]      = to_email
-
             msg.attach(MIMEText(body_text, "plain", "utf-8"))
             if body_html:
                 msg.attach(MIMEText(body_html, "html", "utf-8"))
@@ -109,13 +142,13 @@ async def _send_email(
                 start_tls=int(settings.SMTP_PORT) == 587,
                 timeout=15,
             )
-            log.info("email_sent", to=to_email, subject=subject[:60])
+            log.info("email_sent_smtp", to=to_email, subject=subject[:60])
             return True
         except Exception as exc:
             log.warning("email_smtp_failed", to=to_email, error=str(exc))
             return False
 
-    log.info("email_fallback_log", to=to_email, subject=subject[:80])
+    log.info("email_not_configured", to=to_email, subject=subject[:80])
     return False
 
 
@@ -129,7 +162,6 @@ async def send_invitation_email(
     role: str = "analyst",
     expires_hours: int = 48,
 ) -> bool:
-    """Send a workspace invitation email."""
     subject = f"You're invited to join {tenant_name} on NEURASHIELD"
 
     body_text = f"""Hi,
@@ -184,7 +216,6 @@ async def send_alert_email(
     recommended_action: str | None,
     alert_url: str,
 ) -> bool:
-    """Send email when a HIGH/CRITICAL alert fires."""
     severity_upper = severity.upper()
     sev_colors: dict[str, tuple[str, str]] = {
         "CRITICAL": ("#EF4444", "rgba(239,68,68,0.15)"),
@@ -247,7 +278,6 @@ async def send_agent_offline_email(
     last_seen: str,
     agents_url: str,
 ) -> bool:
-    """Send email when an agent goes offline."""
     subject = f"Agent Offline: {hostname}"
     body_text = f"Agent {hostname} went offline. Last seen: {last_seen}\nView: {agents_url}"
 
@@ -266,7 +296,6 @@ async def send_agent_offline_email(
 </div>
 <p style="color:#B8C0CC;font-size:13px;line-height:1.6;margin:0;">
   This may indicate a network issue, system shutdown, or agent process termination.
-  Check the device and restart the agent if needed.
 </p>
 """
     body_html = _html_wrapper(
@@ -286,7 +315,6 @@ async def send_investigation_email(
     verdict_suggestion: str | None,
     investigation_url: str,
 ) -> bool:
-    """Send email when a new investigation is created."""
     subject = f"New Investigation: {investigation_title}"
 
     verdict_map = {
@@ -308,7 +336,6 @@ async def send_investigation_email(
 </div>"""
         verdict_text = f"\nAI Verdict: {label}"
 
-    # Score bar
     bar_pct = min(100, max(0, threat_score))
     bar_color = "#EF4444" if bar_pct >= 75 else "#F59E0B" if bar_pct >= 50 else "#3B82F6"
 
