@@ -6,6 +6,8 @@ import structlog
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.analyzer import _sanitize_field
+
 log = structlog.get_logger(__name__)
 
 CHAT_MODES = {
@@ -131,14 +133,31 @@ async def build_soc_context(
 def build_system_prompt(mode: str, soc_context: dict, history_text: str = "") -> str:
     mode_config = CHAT_MODES.get(mode, CHAT_MODES["deep_dive"])
 
+    # Sanitize DB-sourced values before embedding in system prompt
+    sanitized_alerts = [
+        {
+            **a,
+            "title": _sanitize_field(a.get("title", ""), max_len=100) or "(untitled)",
+            "host":  _sanitize_field(a.get("host",  ""), max_len=50)  or "unknown",
+        }
+        for a in soc_context.get("alerts", [])
+    ]
+    sanitized_investigations = [
+        {
+            **i,
+            "title": _sanitize_field(i.get("title", ""), max_len=100) or "(untitled)",
+        }
+        for i in soc_context.get("investigations", [])
+    ]
+
     alerts_text = "\n".join(
         f"  - [{a['severity'].upper()}] {a['title']} on {a.get('host', 'unknown')}"
-        for a in soc_context.get("alerts", [])
+        for a in sanitized_alerts
     ) or "  None"
 
     investigations_text = "\n".join(
         f"  - {i['title']} ({i['status']})"
-        for i in soc_context.get("investigations", [])
+        for i in sanitized_investigations
     ) or "  None"
 
     agents = soc_context.get("agents", {})

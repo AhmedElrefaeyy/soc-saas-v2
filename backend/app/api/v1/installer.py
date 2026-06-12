@@ -272,9 +272,11 @@ async def bootstrap_enroll(
     if redis is not None:
         redis_typed: Redis[str] = redis  # type: ignore[assignment]
         ip_key = f"enroll_ip:{client_ip}"
-        current = await redis_typed.incr(ip_key)
-        if current == 1:
-            await redis_typed.expire(ip_key, _ENROLL_RATE_WINDOW_SECS)
+        pipe = redis_typed.pipeline()
+        pipe.incr(ip_key)
+        pipe.expire(ip_key, _ENROLL_RATE_WINDOW_SECS)
+        results = await pipe.execute()
+        current = results[0]  # result of INCR
         if current > _ENROLL_RATE_LIMIT:
             logger.warning(
                 "bootstrap_enroll_rate_limit_exceeded",

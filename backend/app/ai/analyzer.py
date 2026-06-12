@@ -14,6 +14,48 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
+# ─── Allowed LLM output values ────────────────────────────────────────────────
+
+VALID_SEVERITIES = {"benign", "suspicious", "malicious", "unknown"}
+VALID_ACTIONS    = {"Monitor", "Investigate", "Contain", "Escalate"}
+
+# ─── Prompt injection sanitizer ───────────────────────────────────────────────
+
+_INJECTION_PATTERNS = [
+    r"ignore\s+previous\s+instructions?",
+    r"system\s*:",
+    r"assistant\s*:",
+    r"<\s*system\s*>",
+    r"##\s*system",
+    r"you\s+are\s+now",
+    r"new\s+instructions?",
+    r"forget\s+everything",
+]
+_INJECTION_RE = re.compile(
+    "|".join(_INJECTION_PATTERNS), flags=re.IGNORECASE
+)
+
+_IP_RE = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$')
+
+
+def _sanitize_field(value: str | None, max_len: int = 200) -> str | None:
+    """Strip prompt injection attempts from event field values."""
+    if value is None:
+        return None
+    value = value[:max_len]
+    # Remove newlines that could break prompt structure
+    value = value.replace("\n", " ").replace("\r", " ")
+    # Remove common injection patterns
+    value = _INJECTION_RE.sub("[REDACTED]", value)
+    return value.strip() or None
+
+
+def _validate_ip(ip: str | None) -> str | None:
+    if ip is None:
+        return None
+    ip = ip.strip()
+    return ip if _IP_RE.match(ip) else "[invalid_ip]"
+
 
 @dataclass
 class AnalysisResult:
@@ -69,25 +111,29 @@ Be precise. If unsure, reflect that in confidence score. Never make up MITRE tec
             return self._default_result()
 
     def _build_prompt(self, event: "NormalizedEvent") -> str:
-        """Build structured prompt from NormalizedEvent fields (non-null only, ~800 token limit)."""
+        """Build structured prompt from NormalizedEvent fields (sanitized, ~800 token limit)."""
         parts: list[str] = []
 
+        host = _sanitize_field(event.hostname, max_len=100) or "unknown"
         parts.append(
             f"Category: {event.category} | Severity: {event.severity}\n"
             f"Timestamp: {event.timestamp}\n"
-            f"Host: {event.hostname or 'unknown'}"
+            f"Host: {host}"
             + (f" ({event.os_type})" if event.os_type else "")
         )
 
         if event.process:
             p = event.process
             proc_parts: list[str] = []
-            if p.name:
-                proc_parts.append(f"Process: {p.name}" + (f" (PID: {p.pid})" if p.pid else ""))
-            if p.command_line:
-                proc_parts.append(f"  Command: {p.command_line}")
-            if p.executable and p.executable != p.name:
-                proc_parts.append(f"  Executable: {p.executable}")
+            proc_name = _sanitize_field(p.name, max_len=100)
+            if proc_name:
+                proc_parts.append(f"Process: {proc_name}" + (f" (PID: {p.pid})" if p.pid else ""))
+            cmd = _sanitize_field(p.command_line, max_len=200)
+            if cmd:
+                proc_parts.append(f"  Command: {cmd}")
+            exe = _sanitize_field(p.executable, max_len=100)
+            if exe and exe != proc_name:
+                proc_parts.append(f"  Executable: {exe}")
             if p.ppid:
                 proc_parts.append(f"  Parent PID: {p.ppid}")
             if p.hash_sha256:
@@ -100,8 +146,10 @@ Be precise. If unsure, reflect that in confidence score. Never make up MITRE tec
         if event.network:
             n = event.network
             net_parts: list[str] = []
-            src = f"{n.src_ip}:{n.src_port}" if n.src_ip and n.src_port else (n.src_ip or "")
-            dst = f"{n.dst_ip}:{n.dst_port}" if n.dst_ip and n.dst_port else (n.dst_ip or "")
+            src_ip = _validate_ip(n.src_ip)
+            dst_ip = _validate_ip(n.dst_ip)
+            src = f"{src_ip}:{n.src_port}" if src_ip and n.src_port else (src_ip or "")
+            dst = f"{dst_ip}:{n.dst_port}" if dst_ip and n.dst_port else (dst_ip or "")
             if src or dst:
                 net_parts.append(f"Network: {src} -> {dst}" + (f" ({n.protocol})" if n.protocol else ""))
             if n.direction:
@@ -111,9 +159,10 @@ Be precise. If unsure, reflect that in confidence score. Never make up MITRE tec
 
         if event.user:
             u = event.user
-            user_str = u.name or ""
-            if u.domain:
-                user_str = f"{user_str}@{u.domain}"
+            user_str = _sanitize_field(u.name, max_len=100) or ""
+            domain = _sanitize_field(u.domain, max_len=100)
+            if domain:
+                user_str = f"{user_str}@{domain}"
             if user_str:
                 parts.append(
                     f"User: {user_str}" + (" [PRIVILEGED]" if u.is_privileged else "")
@@ -122,10 +171,13 @@ Be precise. If unsure, reflect that in confidence score. Never make up MITRE tec
         if event.file:
             f = event.file
             file_parts: list[str] = []
-            if f.path:
-                file_parts.append(f"File: {f.path}" + (f" ({f.action})" if f.action else ""))
-            elif f.name:
-                file_parts.append(f"File: {f.name}" + (f" ({f.action})" if f.action else ""))
+            path = _sanitize_field(f.path, max_len=200)
+            name = _sanitize_field(f.name, max_len=100)
+            action = _sanitize_field(f.action, max_len=50)
+            if path:
+                file_parts.append(f"File: {path}" + (f" ({action})" if action else ""))
+            elif name:
+                file_parts.append(f"File: {name}" + (f" ({action})" if action else ""))
             if f.hash_sha256:
                 file_parts.append(f"  SHA256: {f.hash_sha256}")
             elif f.hash_md5:
@@ -139,12 +191,11 @@ Be precise. If unsure, reflect that in confidence score. Never make up MITRE tec
         return "\n\n".join(parts)
 
     def _parse_response(self, response: str) -> AnalysisResult:
-        """Parse LLM JSON response into AnalysisResult. Returns safe default on parse error."""
+        """Parse LLM JSON response, validating all values before storing."""
         try:
             # Strip markdown fences if present
             text = re.sub(r"^```(?:json)?\s*", "", response.strip())
             text = re.sub(r"\s*```$", "", text.strip())
-            # Extract JSON object if surrounded by other text
             start = text.find("{")
             end = text.rfind("}")
             if start != -1 and end != -1:
@@ -157,17 +208,42 @@ Be precise. If unsure, reflect that in confidence score. Never make up MITRE tec
                     return None
                 return str(val) if val else None
 
-            confidence = float(data.get("confidence", 0.0))
-            confidence = max(0.0, min(1.0, confidence))
+            # Validate severity against allowed values
+            severity = str(data.get("severity_assessment", "unknown")).lower()
+            if severity not in VALID_SEVERITIES:
+                severity = "unknown"
+
+            # Validate confidence in [0.0, 1.0]
+            try:
+                confidence = float(data.get("confidence", 0.5))
+                confidence = max(0.0, min(1.0, confidence))
+            except (TypeError, ValueError):
+                confidence = 0.5
+
+            # Validate action against allowed values
+            action = str(data.get("recommended_action", "Monitor"))
+            if action not in VALID_ACTIONS:
+                action = "Monitor"
+
+            # Sanitize text fields before storing
+            summary = _sanitize_field(str(data.get("summary", "")), max_len=500) or "Analysis complete"
+
+            # Validate indicators list — each must be a short string
+            indicators: list[str] = []
+            for item in data.get("indicators", [])[:10]:
+                if isinstance(item, str):
+                    sanitized = _sanitize_field(item, max_len=100)
+                    if sanitized:
+                        indicators.append(sanitized)
 
             return AnalysisResult(
-                severity_assessment=str(data.get("severity_assessment", "unknown")),
+                severity_assessment=severity,
                 confidence=confidence,
                 mitre_technique=_nullable_str(data.get("mitre_technique")),
                 mitre_tactic=_nullable_str(data.get("mitre_tactic")),
-                summary=str(data.get("summary", "No summary available")),
-                recommended_action=str(data.get("recommended_action", "Monitor")),
-                indicators=list(data.get("indicators", [])),
+                summary=summary,
+                recommended_action=action,
+                indicators=indicators,
             )
         except Exception:
             log.warning("ai_response_parse_failed", response_snippet=response[:200])

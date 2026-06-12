@@ -228,12 +228,32 @@ Analyze this investigation and provide your assessment in the required JSON form
                 text = text[start : end + 1]
             data = json.loads(text)
 
+            # Validate kill chain stage against allowed values
+            _VALID_KILL_CHAIN = {
+                "Reconnaissance", "Weaponization", "Delivery",
+                "Exploitation", "Installation", "Command & Control", "Actions on Objectives",
+            }
             kc_stage = data.get("kill_chain_stage", "Exploitation")
+            if kc_stage not in _VALID_KILL_CHAIN:
+                kc_stage = "Exploitation"
             try:
                 kc_index = KILL_CHAIN_STAGES.index(kc_stage)
             except ValueError:
                 kc_index = int(data.get("kill_chain_index", 3))
                 kc_stage = KILL_CHAIN_STAGES[min(kc_index, 6)]
+
+            # Validate verdict against allowed values
+            _VALID_VERDICTS = {"true_positive", "false_positive", "needs_investigation"}
+            verdict = str(data.get("verdict", "needs_investigation")).lower()
+            if verdict not in _VALID_VERDICTS:
+                verdict = "needs_investigation"
+
+            # Validate verdict_confidence in [0.0, 1.0]
+            try:
+                verdict_conf = float(data.get("verdict_confidence", 0.5))
+                verdict_conf = max(0.0, min(1.0, verdict_conf))
+            except (TypeError, ValueError):
+                verdict_conf = 0.5
 
             return InvestigationAnalysis(
                 executive_summary=data.get("executive_summary", "Analysis unavailable"),
@@ -252,8 +272,8 @@ Analyze this investigation and provide your assessment in the required JSON form
                     "noise":         data.get("evidence_noise", []),
                 },
                 recommended_actions=data.get("recommended_actions", []),
-                verdict_suggestion=data.get("verdict", "needs_investigation"),
-                verdict_confidence=float(data.get("verdict_confidence", 0.5)),
+                verdict_suggestion=verdict,
+                verdict_confidence=verdict_conf,
                 rag_sources_used=rag_chunks,
             )
         except Exception:

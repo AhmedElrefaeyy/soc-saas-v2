@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import re
 import time
 from uuid import uuid4
+
+_REQUEST_ID_RE = re.compile(r'^[a-zA-Z0-9_\-]{1,64}$')
 
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -26,8 +29,12 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
-        # Accept forwarded request ID or generate a new one
-        request_id = request.headers.get(REQUEST_ID_HEADER) or str(uuid4())
+        # Accept only safe alphanumeric/dash/underscore IDs; reject all others
+        raw_id = request.headers.get(REQUEST_ID_HEADER, "")
+        if raw_id and _REQUEST_ID_RE.match(raw_id):
+            request_id = raw_id
+        else:
+            request_id = str(uuid4())
         tenant_id = request.headers.get(TENANT_ID_HEADER, "")
 
         # Set ContextVars — visible to all log calls in this request's call chain

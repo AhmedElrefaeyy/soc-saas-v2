@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import ConflictError, UnauthorizedError
+from app.core.exceptions import ConflictError, ServiceUnavailableError, UnauthorizedError
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -127,7 +127,8 @@ class AuthService:
             raise UnauthorizedError("Malformed refresh token")
 
         # Look up the persisted token record by JTI
-        assert payload.jti is not None
+        if payload.jti is None:
+            raise UnauthorizedError("Refresh token missing JTI")
         stored = await AuthService._get_refresh_token_by_jti(db, payload.jti)
         if stored is None or not stored.is_valid:
             raise UnauthorizedError("Refresh token has been revoked or expired")
@@ -148,17 +149,31 @@ class AuthService:
     async def logout(db: AsyncSession, refresh_token_str: str) -> None:
         """
         Revokes the refresh token. Access token expiry is handled by its short TTL.
+        Swallows invalid/expired token errors; raises ServiceUnavailableError on DB failure.
         """
         try:
             payload = decode_refresh_token(refresh_token_str)
-            assert payload.jti is not None
-            stored = await AuthService._get_refresh_token_by_jti(db, payload.jti)
+        except Exception:
+            # Invalid or expired token — nothing to revoke
+            return
+
+        if payload.jti is None:
+            return  # No JTI to look up
+
+        jti = payload.jti
+        try:
+            stored = await AuthService._get_refresh_token_by_jti(db, jti)
             if stored and stored.revoked_at is None:
                 stored.revoke()
                 await db.flush([stored])
-        except Exception:
-            # Logout should never raise — silently discard invalid tokens
-            pass
+        except Exception as exc:
+            logger.warning(
+                "refresh_token_revocation_failed",
+                jti=jti,
+                error=str(exc),
+                note="Token may still be valid — user should be advised to re-login",
+            )
+            raise ServiceUnavailableError("Logout failed — please try again")
 
     # ─── Private helpers ──────────────────────────────────────────────────────
 
