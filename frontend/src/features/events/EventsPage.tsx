@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
-  Search, RefreshCw, Download, X, Activity,
+  RefreshCw, Download, X, Activity,
   Cpu, Wifi, FileText, Key, Database, Globe, Settings, Copy, FolderSearch,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { SevBadge } from '@/components/ui/SevBadge'
 import { useEvents } from './hooks/useEvents'
-import { eventsApi, type EventResponse } from '@/api/events'
+import { eventsApi, type EventResponse, type EventSearchRequest } from '@/api/events'
 import { formatDateShort, formatDateTime } from '@/lib/timezone'
+import { SearchAutocomplete } from './SearchAutocomplete'
+import { parseSearchQuery } from './queryParser'
 
 // ─── Category config ──────────────────────────────────────────────────────────
 
@@ -453,15 +455,24 @@ function EventDrawer({ event, onClose }: { event: EventResponse; onClose: () => 
   )
 }
 
+// ─── Quick search templates ───────────────────────────────────────────────────
+
+const QUICK_SEARCHES = [
+  { label: 'Failed Logons',    query: 'category:auth severity:medium earliest:1h'  },
+  { label: 'PowerShell',       query: 'process:powershell.exe earliest:24h'        },
+  { label: 'Network Anomaly',  query: 'category:network severity:high earliest:24h'},
+  { label: 'New Processes',    query: 'category:process earliest:1h'               },
+  { label: 'Privilege Events', query: 'category:auth severity:high earliest:7d'    },
+  { label: 'File Activity',    query: 'category:file earliest:24h'                 },
+]
+
 // ─── EventsPage ───────────────────────────────────────────────────────────────
 
 export function EventsPage() {
   const [searchParams] = useSearchParams()
-  const [search,   setSearch]   = useState('')
-  const [category, setCategory] = useState('')
-  const [severity, setSeverity] = useState('')
-  const [hostname, setHostname] = useState(searchParams.get('agent_id') ? '' : '')
-  const [agentId,  setAgentId]  = useState(searchParams.get('agent_id') ?? '')
+  const [queryText,    setQueryText]    = useState('')
+  const [parsedSearch, setParsedSearch] = useState<Partial<EventSearchRequest>>({})
+  const [agentId,      setAgentId]      = useState(searchParams.get('agent_id') ?? '')
   const [selectedEvent, setSelectedEvent] = useState<EventResponse | null>(null)
 
   // Sync agent_id URL param on mount
@@ -470,28 +481,38 @@ export function EventsPage() {
     if (aid) setAgentId(aid)
   }, [searchParams])
 
+  const handleSearch = useCallback((text?: string) => {
+    const q = text ?? queryText
+    setParsedSearch(parseSearchQuery(q))
+  }, [queryText])
+
+  const clearSearch = () => {
+    setQueryText('')
+    setParsedSearch({})
+    setAgentId('')
+  }
+
   const { data, isLoading, refetch } = useEvents({
-    query:     search   || undefined,
-    category:  category || undefined,
-    severity:  severity || undefined,
-    host_name: hostname || undefined,
-    agent_id:  agentId  || undefined,
+    searchRequest: parsedSearch,
+    agent_id: agentId || undefined,
     limit: 100,
   })
 
   const events = data?.items ?? []
   const total  = data?.total_estimate ?? 0
-
-  const activeFilters = [search, category, severity, hostname, agentId].filter(Boolean).length
+  const hasActiveSearch = !!(queryText || agentId)
 
   const handleExport = async (format: 'csv' | 'json') => {
     try {
       const resp = await eventsApi.export({
         format,
-        query:      search   || undefined,
-        categories: category ? [category] : undefined,
-        host_names: hostname ? [hostname] : undefined,
-        agent_ids:  agentId  ? [agentId]  : undefined,
+        query:       parsedSearch.query,
+        categories:  parsedSearch.categories,
+        severity_min: parsedSearch.severity_min,
+        host_names:  parsedSearch.host_names,
+        agent_ids:   agentId ? [agentId] : parsedSearch.agent_ids,
+        from_ts:     parsedSearch.from_ts,
+        to_ts:       parsedSearch.to_ts,
         max_rows: 10_000,
       })
       const blob = resp.data as unknown as Blob
@@ -546,79 +567,80 @@ export function EventsPage() {
         </div>
       </div>
 
-      {/* Filter bar */}
+      {/* Search bar */}
       <div style={{
-        display: 'flex', gap: 6,
         padding: '8px 0',
         borderBottom: '1px solid rgba(255,255,255,0.04)',
-        flexWrap: 'wrap', alignItems: 'center', flexShrink: 0,
+        flexShrink: 0,
       }}>
-        {/* Search */}
-        <div style={{ position: 'relative' }}>
-          <Search size={12} style={{
-            position: 'absolute', left: 9, top: '50%',
-            transform: 'translateY(-50%)', color: '#5C6373', pointerEvents: 'none',
-          }} />
-          <input
-            className="inp"
-            style={{ width: 260, paddingLeft: 28 }}
-            placeholder="Search events..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+        {/* Quick search chips */}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+          {QUICK_SEARCHES.map(t => (
+            <button
+              key={t.label}
+              onClick={() => { setQueryText(t.query); handleSearch(t.query) }}
+              style={{
+                padding: '2px 8px', borderRadius: 4,
+                fontSize: 10, fontWeight: 600,
+                background: 'rgba(255,255,255,0.04)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                color: '#5C6373', cursor: 'pointer',
+                fontFamily: "'JetBrains Mono', monospace",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        {/* Category */}
-        <select className="inp" style={{ width: 140 }}
-          value={category} onChange={e => setCategory(e.target.value)}>
-          <option value="">All Categories</option>
-          {Object.entries(categoryConfig).map(([k, v]) => (
-            <option key={k} value={k}>{v.label}</option>
-          ))}
-        </select>
+        {/* SPL input + agent pill + clear */}
+        <div style={{ display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+          <SearchAutocomplete
+            value={queryText}
+            onChange={setQueryText}
+            onSearch={() => handleSearch()}
+          />
 
-        {/* Severity */}
-        <select className="inp" style={{ width: 130 }}
-          value={severity} onChange={e => setSeverity(e.target.value)}>
-          <option value="">All Severity</option>
-          <option value="critical">Critical</option>
-          <option value="high">High</option>
-          <option value="medium">Medium</option>
-          <option value="low">Low</option>
-        </select>
+          {agentId && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '0 10px', height: 32, borderRadius: 5, flexShrink: 0,
+              fontSize: 11, color: '#60A5FA',
+              background: 'rgba(59,130,246,0.08)',
+              border: '1px solid rgba(59,130,246,0.2)',
+              fontFamily: "'JetBrains Mono', monospace",
+            }}>
+              agent:{agentId.slice(0, 8)}
+              <button onClick={() => setAgentId('')} style={{
+                background: 'none', border: 'none', color: '#60A5FA',
+                cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center',
+              }}>
+                <X size={11} />
+              </button>
+            </div>
+          )}
 
-        {/* Hostname */}
-        <input
-          className="inp"
-          style={{ width: 160 }}
-          placeholder="Filter hostname..."
-          value={hostname}
-          onChange={e => setHostname(e.target.value)}
-        />
-
-        {/* Clear filters */}
-        {activeFilters > 0 && (
-          <button
-            onClick={() => {
-              setSearch('')
-              setCategory('')
-              setSeverity('')
-              setHostname('')
-              setAgentId('')
-            }}
-            style={{
+          {hasActiveSearch && (
+            <button onClick={clearSearch} style={{
               display: 'flex', alignItems: 'center', gap: 4,
-              padding: '0 10px', height: 32, borderRadius: 5,
+              padding: '0 10px', height: 32, borderRadius: 5, flexShrink: 0,
               fontSize: 11, color: '#8B95A7',
               background: 'rgba(255,255,255,0.04)',
               border: '1px solid rgba(255,255,255,0.07)',
               cursor: 'pointer',
-              transition: 'color 120ms',
-            }}
-          >
-            <X size={11} />
-            {activeFilters} filter{activeFilters > 1 ? 's' : ''}
-          </button>
+            }}>
+              <X size={11} /> Clear
+            </button>
+          )}
+        </div>
+
+        {/* Result summary */}
+        {queryText && !isLoading && (
+          <div style={{ fontSize: 11, color: '#5C6373', marginTop: 4 }}>
+            {total > 0
+              ? <>{total.toLocaleString()} results</>
+              : <>No events found</>}
+          </div>
         )}
       </div>
 
@@ -665,8 +687,8 @@ export function EventsPage() {
                       No events found
                     </div>
                     <div style={{ fontSize: 12, color: '#3A4150' }}>
-                      {activeFilters > 0
-                        ? 'Try adjusting your filters'
+                      {hasActiveSearch
+                        ? 'Try adjusting your search query'
                         : 'Events will appear here once agents start reporting'}
                     </div>
                   </div>
