@@ -12,6 +12,7 @@ from app.models.event import Event, EventCategory
 from app.normalization.mapper import map_stream_message_to_normalized
 from app.normalization.models import NormalizedEvent
 from app.threat_intel.service import EnrichmentResult
+from app.ueba.anomaly import AnomalyResult
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +29,7 @@ class NormalizationService:
         normalized: NormalizedEvent,
         stream_id: str | None = None,
         enrichment: EnrichmentResult | None = None,
+        ueba_result: AnomalyResult | None = None,
     ) -> Event:
         """
         Persists a NormalizedEvent to the events table and returns the ORM object.
@@ -44,6 +46,7 @@ class NormalizationService:
         user_dict = dataclasses.asdict(normalized.user) if normalized.user else None
 
         enr = enrichment or EnrichmentResult()
+        ueba = ueba_result or AnomalyResult()
 
         event = Event(
             tenant_id=UUID(normalized.tenant_id),
@@ -78,6 +81,10 @@ class NormalizationService:
             abuse_confidence=enr.abuse_confidence,
             is_threat_ip=enr.is_threat_ip,
             threat_intel_flags=enr.threat_intel_flags,
+            # UEBA
+            anomaly_score=ueba.anomaly_score,
+            is_anomaly=ueba.is_anomaly,
+            ueba_flags=ueba.ueba_flags,
         )
 
         db.add(event)
@@ -90,6 +97,8 @@ class NormalizationService:
             tenant_id=normalized.tenant_id,
             is_threat_ip=enr.is_threat_ip,
             geo_country=enr.geo_country,
+            is_anomaly=ueba.is_anomaly,
+            anomaly_score=ueba.anomaly_score,
         )
 
         return event

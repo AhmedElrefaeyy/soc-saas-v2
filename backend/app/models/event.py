@@ -88,6 +88,11 @@ class Event(Base):
     is_threat_ip: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     threat_intel_flags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
 
+    # UEBA anomaly detection (Phase 2)
+    anomaly_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    is_anomaly: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    ueba_flags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+
     # Structured normalized payload (ECS-inspired)
     process: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     user: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -114,6 +119,7 @@ class Event(Base):
         Index("idx_event_tenant_event_chain_id", "tenant_id", "event_chain_id"),
         Index("idx_event_tenant_geo_country", "tenant_id", "geo_country"),
         Index("idx_event_is_threat_ip", "tenant_id", "is_threat_ip"),
+        Index("idx_event_is_anomaly", "tenant_id", "is_anomaly"),
     )
 
     def __repr__(self) -> str:

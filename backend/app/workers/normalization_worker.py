@@ -14,6 +14,7 @@ from app.normalization.service import NormalizationService
 from app.pipeline import stream_names
 from app.pipeline.consumer import StreamConsumer
 from app.threat_intel.service import ThreatIntelService
+from app.ueba.service import UEBAService
 
 logger = structlog.get_logger(__name__)
 
@@ -52,8 +53,14 @@ class NormalizationWorker:
             redis = redis_manager.get_client()
             enrichment = await ThreatIntelService.enrich_ip(normalized.source_ip, redis)
 
+            # UEBA behavioral analysis (never raises)
+            ueba_result = await UEBAService.analyze(
+                normalized, enrichment, redis, tenant_id_str
+            )
+
             event = await NormalizationService.persist_event(
-                db, normalized, stream_id=msg_id, enrichment=enrichment
+                db, normalized, stream_id=msg_id,
+                enrichment=enrichment, ueba_result=ueba_result,
             )
 
             pipeline_client = TenantRedisClient(redis, tenant_id_str, stream_names.SUBSYSTEM)

@@ -61,6 +61,10 @@ export interface EventResponse {
   abuse_confidence: number
   is_threat_ip: boolean
   threat_intel_flags: string[]
+  // UEBA anomaly detection (Phase 2)
+  anomaly_score: number
+  is_anomaly: boolean
+  ueba_flags: string[]
 }
 
 // ─── Search request (mirrors backend EventSearchRequest) ─────────────────────

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   RefreshCw, Download, X, Activity,
   Cpu, Wifi, FileText, Key, Database, Globe, Settings, Copy, FolderSearch,
-  ShieldAlert, MapPin,
+  ShieldAlert, MapPin, AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { SevBadge } from '@/components/ui/SevBadge'
@@ -227,6 +227,9 @@ function EventRow({ event, onClick }: { event: EventResponse; onClick: () => voi
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {event.is_threat_ip && (
             <ShieldAlert size={11} style={{ color: '#F87171', flexShrink: 0 }} />
+          )}
+          {event.is_anomaly && !event.is_threat_ip && (
+            <AlertTriangle size={11} style={{ color: '#FBBF24', flexShrink: 0 }} />
           )}
           <span style={{
             fontSize: 12, color: '#8B95A7',
@@ -506,6 +509,72 @@ function EventDrawer({ event, onClose }: { event: EventResponse; onClose: () => 
                       fontFamily: "'JetBrains Mono', monospace",
                     }}>
                       {flag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </Section>
+          )}
+
+          {/* UEBA Behavioral Analysis */}
+          {(event.is_anomaly || event.ueba_flags.length > 0) && (
+            <Section title="Behavioral Analysis (UEBA)">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                <AlertTriangle size={12} style={{
+                  color: event.anomaly_score >= 0.7 ? '#F87171' : '#FBBF24',
+                  flexShrink: 0,
+                }} />
+                <span style={{
+                  fontSize: 11, fontWeight: 700,
+                  color: event.anomaly_score >= 0.7 ? '#F87171' : '#FBBF24',
+                }}>
+                  {event.anomaly_score >= 0.7 ? 'HIGH RISK ANOMALY' : 'BEHAVIORAL ANOMALY DETECTED'}
+                </span>
+              </div>
+              {/* Score bar */}
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 9, color: '#5C6373', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 4 }}>
+                  Anomaly Score
+                </div>
+                <div style={{
+                  height: 6, borderRadius: 3,
+                  background: 'rgba(255,255,255,0.06)',
+                  overflow: 'hidden',
+                }}>
+                  <div style={{
+                    height: '100%',
+                    width: `${Math.round(event.anomaly_score * 100)}%`,
+                    borderRadius: 3,
+                    background: event.anomaly_score >= 0.7
+                      ? '#F87171'
+                      : event.anomaly_score >= 0.5
+                        ? '#FBBF24'
+                        : '#34D399',
+                    transition: 'width 400ms ease',
+                  }} />
+                </div>
+                <div style={{ fontSize: 10, color: '#8B95A7', marginTop: 3 }}>
+                  {Math.round(event.anomaly_score * 100)}% risk score
+                </div>
+              </div>
+              {/* Flags */}
+              {event.ueba_flags.length > 0 && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {event.ueba_flags.map(flag => (
+                    <span key={flag} style={{
+                      fontSize: 10, padding: '2px 6px', borderRadius: 3,
+                      background: flag === 'impossible_travel' || flag === 'brute_force_success' || flag === 'lateral_movement'
+                        ? 'rgba(248,113,113,0.08)'
+                        : 'rgba(251,191,36,0.08)',
+                      border: flag === 'impossible_travel' || flag === 'brute_force_success' || flag === 'lateral_movement'
+                        ? '1px solid rgba(248,113,113,0.2)'
+                        : '1px solid rgba(251,191,36,0.2)',
+                      color: flag === 'impossible_travel' || flag === 'brute_force_success' || flag === 'lateral_movement'
+                        ? '#F87171'
+                        : '#FBBF24',
+                      fontFamily: "'JetBrains Mono', monospace",
+                    }}>
+                      {flag.replace(/_/g, ' ')}
                     </span>
                   ))}
                 </div>

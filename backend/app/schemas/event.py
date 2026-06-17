@@ -45,6 +45,10 @@ class EventResponse(BaseModel):
     abuse_confidence: int = 0
     is_threat_ip: bool = False
     threat_intel_flags: list[str] = []
+    # UEBA anomaly detection (Phase 2)
+    anomaly_score: float = 0.0
+    is_anomaly: bool = False
+    ueba_flags: list[str] = []
 
 
 class EventFilterParams(BaseModel):
