@@ -226,7 +226,7 @@ function EventRow({ event, onClick }: { event: EventResponse; onClick: () => voi
       <td style={{ padding: '7px 12px', maxWidth: 400 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           {event.is_threat_ip && (
-            <ShieldAlert size={11} style={{ color: '#F87171', flexShrink: 0 }} title="Malicious IP" />
+            <ShieldAlert size={11} style={{ color: '#F87171', flexShrink: 0 }} />
           )}
           <span style={{
             fontSize: 12, color: '#8B95A7',
