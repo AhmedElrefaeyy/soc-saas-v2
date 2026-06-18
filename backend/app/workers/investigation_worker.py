@@ -104,6 +104,7 @@ class InvestigationWorker:
 
                 await self._engine.persist(result, db)
                 await self._persist_full_result(result, db)
+                await self._populate_triggering_alerts(investigation_id, snapshots, db)
                 await db.commit()
         except Exception as exc:
             logger.error(
@@ -182,6 +183,52 @@ class InvestigationWorker:
             confidence=result.score.confidence,
             behavior_count=result.behaviors.behavior_count,
         )
+
+    async def _populate_triggering_alerts(
+        self, investigation_id: str, snapshots: list[dict[str, Any]], db: Any
+    ) -> None:
+        """Write alert IDs linked to these events into investigations.triggering_alert_ids."""
+        import json
+        from sqlalchemy import text
+        try:
+            raw_event_ids = [s.get("event_id") for s in snapshots if s.get("event_id")]
+            if not raw_event_ids:
+                return
+            # Filter to valid UUID strings only
+            valid_ids: list[str] = []
+            for eid in raw_event_ids:
+                try:
+                    from uuid import UUID as _UUID
+                    _UUID(str(eid))
+                    valid_ids.append(str(eid))
+                except (ValueError, AttributeError):
+                    pass
+            if not valid_ids:
+                return
+            placeholders = ", ".join(f"CAST(:eid_{i} AS uuid)" for i in range(len(valid_ids)))
+            params: dict[str, Any] = {f"eid_{i}": eid for i, eid in enumerate(valid_ids)}
+            params["tid"] = self._tenant_id
+            rows = await db.execute(
+                text(
+                    f"SELECT id::text FROM alerts "
+                    f"WHERE triggering_event_id IN ({placeholders}) "
+                    f"AND tenant_id = CAST(:tid AS uuid) "
+                    f"AND deleted_at IS NULL"
+                ),
+                params,
+            )
+            alert_ids = [row[0] for row in rows.fetchall()]
+            if alert_ids:
+                await db.execute(
+                    text(
+                        "UPDATE investigations SET "
+                        "triggering_alert_ids = CAST(:ids AS jsonb), updated_at = NOW() "
+                        "WHERE id = CAST(:inv_id AS uuid)"
+                    ),
+                    {"ids": json.dumps(alert_ids), "inv_id": investigation_id},
+                )
+        except Exception as exc:
+            logger.warning("triggering_alerts_populate_failed", error=str(exc))
 
     async def _persist_ai_analysis(
         self, investigation_id: str, ai_analysis: dict, db: Any

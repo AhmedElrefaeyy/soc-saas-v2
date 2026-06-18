@@ -9,6 +9,7 @@ Pipeline for each event:
 """
 from __future__ import annotations
 
+import os
 import time
 
 import structlog
@@ -18,12 +19,52 @@ from app.normalization.models import NormalizedEvent
 from app.threat_intel.service import EnrichmentResult
 from app.ueba.anomaly import AnomalyResult, compute_anomaly
 from app.ueba.attack_chain import AttackChainDetector
-from app.ueba.baseline import BehavioralBaseline
+from app.ueba.baseline import BehavioralBaseline, _BIZ_START, _BIZ_END
 from app.ueba.impossible_travel import is_impossible_travel
 
 logger = structlog.get_logger(__name__)
 
 UEBAResult = AnomalyResult
+
+# FP weight damping: if a flag has >= this many FP signals, its weight is halved.
+_FP_DAMPING_THRESHOLD = 5
+_FP_WEIGHT_CACHE_TTL  = 300  # 5 minutes
+
+
+async def _load_fp_adjusted_weights(
+    redis: "Redis",  # type: ignore[name-defined]
+    tenant_id: str,
+) -> dict[str, float]:
+    """
+    Return a dict of flag → adjusted_weight for any flag whose FP count
+    exceeds the damping threshold. Returns {} if no adjustment needed.
+    Caches the computed adjustments in Redis for _FP_WEIGHT_CACHE_TTL seconds.
+    """
+    from app.core.redis import TenantRedisClient
+    from app.ueba.anomaly import _WEIGHTS
+
+    client = TenantRedisClient(redis, tenant_id, "ueba")
+    cache_key = "fp:weights_cache"
+
+    try:
+        cached = await client.get(cache_key)
+        if cached:
+            import json
+            return json.loads(cached)
+
+        adjustments: dict[str, float] = {}
+        for flag, base_weight in _WEIGHTS.items():
+            raw = await client.get(f"fp:{flag}")
+            if raw and int(raw) >= _FP_DAMPING_THRESHOLD:
+                adjustments[flag] = base_weight * 0.5  # halve weight for frequently FP'd flags
+
+        if adjustments:
+            import json
+            await client.set(cache_key, json.dumps(adjustments), ex=_FP_WEIGHT_CACHE_TTL)
+
+        return adjustments
+    except Exception:
+        return {}
 
 # Processes that are common Windows infrastructure — flagging them as
 # "new_process_on_host" would produce constant false positives.
@@ -35,6 +76,87 @@ _SYSTEM_NOISE_PROCS = {
     "sihost.exe", "fontdrvhost.exe", "spoolsv.exe",
     "WmiPrvSE.exe", "WmiApSrv.exe", "msdtc.exe",
 }
+
+
+# Processes / paths that signal access to sensitive resources
+_SENSITIVE_PROC_PATTERNS = {
+    "lsass.exe", "mimikatz", "ntds.dit", "sam", "security.evtx",
+    "procdump", "wce.exe", "pwdump",
+}
+_INSIDER_OFFHOURS_FILE_THRESHOLD = int(os.getenv("UEBA_INSIDER_FILE_THRESHOLD", "50"))
+_INSIDER_RAPID_ACCESS_THRESHOLD  = int(os.getenv("UEBA_INSIDER_RAPID_ACCESS",   "30"))
+_INSIDER_RAPID_ACCESS_WINDOW     = int(os.getenv("UEBA_INSIDER_RAPID_WINDOW",    "600"))  # 10 min
+
+
+async def _check_insider_threat(
+    redis: "Redis",  # type: ignore[name-defined]
+    tenant_id: str,
+    username: str,
+    category: str,
+    event: "NormalizedEvent",  # type: ignore[name-defined]
+    after_hours: bool,
+    ts: "datetime",  # type: ignore[name-defined]
+) -> tuple[list[str], dict[str, str]]:
+    """
+    Check for insider threat indicators and return (flags, reasons).
+    Uses Redis counters with short TTLs to track per-user activity rates.
+    """
+    import time as _time
+    from app.core.redis import TenantRedisClient
+    client = TenantRedisClient(redis, tenant_id, "ueba")
+    flags: list[str] = []
+    reasons: dict[str, str] = {}
+    now = ts.timestamp() if hasattr(ts, "timestamp") else _time.time()
+
+    try:
+        # ── Off-hours high-volume file activity ────────────────────────────────
+        if after_hours and category == "file":
+            file_key = f"insider:{username}:file_count"
+            count = await client.incr(file_key)
+            if count == 1:
+                await client.expire(file_key, 3600)  # 1-hour rolling window
+            if count >= _INSIDER_OFFHOURS_FILE_THRESHOLD:
+                flags.append("insider_offhours_data")
+                reasons["insider_offhours_data"] = (
+                    f"User '{username}' accessed {count}+ files during off-hours "
+                    f"— possible data staging or exfiltration attempt"
+                )
+
+        # ── Rapid resource access (many distinct resources in short window) ────
+        if category in ("file", "network"):
+            resource = (
+                event.network.destination_ip
+                if category == "network" and event.network
+                else str(event.raw.get("file_path", ""))
+            )
+            if resource:
+                rapid_key = f"insider:{username}:rapid_resources"
+                cutoff = now - _INSIDER_RAPID_ACCESS_WINDOW
+                await client.zremrangebyscore(rapid_key, "-inf", cutoff)
+                await client.zadd(rapid_key, {f"{resource}:{now:.6f}": now})
+                await client.expire(rapid_key, _INSIDER_RAPID_ACCESS_WINDOW * 2)
+                distinct_count = await client.zcard(rapid_key)
+                if distinct_count >= _INSIDER_RAPID_ACCESS_THRESHOLD:
+                    flags.append("insider_rapid_access")
+                    reasons["insider_rapid_access"] = (
+                        f"User '{username}' accessed {distinct_count}+ distinct resources "
+                        f"within {_INSIDER_RAPID_ACCESS_WINDOW // 60} minute(s) "
+                        f"— possible reconnaissance or bulk data access"
+                    )
+
+        # ── Sensitive process / resource access ────────────────────────────────
+        proc = (event.process_name or "").lower()
+        if proc and any(s in proc for s in _SENSITIVE_PROC_PATTERNS):
+            flags.append("insider_sensitive_access")
+            reasons["insider_sensitive_access"] = (
+                f"User '{username}' accessed sensitive resource/process '{event.process_name}' "
+                f"— may indicate credential harvesting or privileged data access"
+            )
+
+    except Exception:
+        pass  # Never let insider checks break the main UEBA pipeline
+
+    return flags, reasons
 
 
 class UEBAService:
@@ -93,7 +215,7 @@ class UEBAService:
             bl_flags.append("after_hours")
             reasons["after_hours"] = (
                 f"User '{username}' was active at {ts.strftime('%H:%M')} UTC "
-                f"— outside expected business hours (06:00–22:00)"
+                f"— outside expected business hours ({_BIZ_START:02d}:00–{_BIZ_END:02d}:00)"
             )
 
         if bfl.new_source_ip and username and source_ip:
@@ -151,7 +273,16 @@ class UEBAService:
             is_auth_success = any(t in tags_lower for t in ("logon_success", "auth_success", "accepted"))
             is_auth_failure = any(t in tags_lower for t in ("logon_failure", "auth_failure", "failed"))
 
-        # ── 4. Attack chain detection ──────────────────────────────────────────
+        # ── 4. Insider threat heuristics ──────────────────────────────────────
+        # Only run for authenticated users performing data-related actions.
+        if username and category in ("file", "process", "auth", "network"):
+            insider_flags, insider_reasons = await _check_insider_threat(
+                redis, tenant_id, username, category, normalized, bfl.after_hours, ts
+            )
+            bl_flags.extend(insider_flags)
+            reasons.update(insider_reasons)
+
+        # ── 5. Attack chain detection ──────────────────────────────────────────
         detector = AttackChainDetector(redis, tenant_id)
         chain_flags = await detector.evaluate(
             category=category,
@@ -187,11 +318,14 @@ class UEBAService:
             )
 
         # ── 5. Final anomaly score ─────────────────────────────────────────────
+        # Load FP-adjusted weights (dampen flags that analysts frequently mark as FP)
+        fp_weights = await _load_fp_adjusted_weights(redis, tenant_id)
         result = compute_anomaly(
             baseline_flags=bl_flags,
             attack_chain_flags=chain_flags,
             is_threat_ip=enr.is_threat_ip,
             reasons=reasons,
+            weight_overrides=fp_weights if fp_weights else None,
         )
 
         if result.is_anomaly:

@@ -26,6 +26,8 @@ from app.workers.normalization_worker import NormalizationWorker
 from app.workers.detection_worker import DetectionWorker
 from app.workers.correlation_worker import CorrelationWorker
 from app.workers.investigation_worker import InvestigationWorker
+from app.workers.baseline_snapshot_worker import BaselineSnapshotWorker
+from app.workers.escalation_worker import AlertEscalationWorker
 from app.workers.heartbeat_worker import HeartbeatWorker
 from app.workers.installer_worker import InstallerTokenWorker
 from app.workers.realtime_worker import RealtimeWorker
@@ -158,6 +160,14 @@ async def main() -> None:
     # Installer token expiry sweep (global, single instance)
     installer_worker = InstallerTokenWorker()
     tasks.append(asyncio.create_task(installer_worker.run(stop_event), name="installer-expiry"))
+
+    # Alert escalation sweep (global — covers all tenants)
+    escalation_worker = AlertEscalationWorker()
+    tasks.append(asyncio.create_task(escalation_worker.run(stop_event), name="alert-escalation"))
+
+    # UEBA baseline snapshot/restore (global — warm Redis after pod restarts)
+    baseline_worker = BaselineSnapshotWorker()
+    tasks.append(asyncio.create_task(baseline_worker.run(stop_event), name="baseline-snapshot"))
 
     # Realtime Redis pub/sub listener (global, one per process)
     rt_listener = RealtimeListener(redis_manager.get_client())

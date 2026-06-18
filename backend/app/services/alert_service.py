@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 from datetime import datetime, timezone
 from uuid import UUID
@@ -13,6 +14,26 @@ from app.models.alert import Alert, AlertSeverity, AlertStatus
 from app.schemas.alert import AlertFilterParams, AlertUpdateRequest
 
 logger = structlog.get_logger(__name__)
+
+# TTL for per-tenant per-flag FP counters (30-day rolling window)
+_FP_COUNTER_TTL = 86400 * 30
+
+
+async def _record_fp_signal_async(tenant_id: str, evidence: dict) -> None:
+    """Increment Redis FP counters for each UEBA flag present in a false-positive alert."""
+    try:
+        from app.core.redis import redis_manager, TenantRedisClient
+        redis = redis_manager.get_client()
+        client = TenantRedisClient(redis, tenant_id, "ueba")
+        ueba_flags: list[str] = evidence.get("ueba_flags", [])
+        for flag in ueba_flags:
+            key = f"fp:{flag}"
+            await client.incr(key)
+            await client.expire(key, _FP_COUNTER_TTL)
+        if ueba_flags:
+            logger.info("fp_signal_recorded", tenant_id=tenant_id, flags=ueba_flags)
+    except Exception as exc:
+        logger.warning("fp_signal_record_failed", error=str(exc))
 
 
 class AlertService:
@@ -139,6 +160,12 @@ class AlertService:
             if new_status in (AlertStatus.CLOSED, AlertStatus.FALSE_POSITIVE):
                 alert.closed_at = now
                 alert.closed_by_id = actor_id
+
+            if new_status == AlertStatus.FALSE_POSITIVE:
+                # Record UEBA flags as FP signals for weight adjustment (non-blocking)
+                asyncio.create_task(
+                    _record_fp_signal_async(str(tenant_id), alert.evidence or {})
+                )
 
             alert.status = new_status
 

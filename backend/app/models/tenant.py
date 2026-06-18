@@ -23,6 +23,7 @@ class Tenant(Base, TimestampMixin, SoftDeleteMixin):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), nullable=False, unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
 
     # ─── Relationships ────────────────────────────────────────────────────────
     members: Mapped[list["TenantMember"]] = relationship(  # type: ignore[name-defined]

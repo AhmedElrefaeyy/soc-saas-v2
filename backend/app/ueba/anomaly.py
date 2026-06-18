@@ -18,6 +18,10 @@ _WEIGHTS: dict[str, float] = {
     "lateral_movement":          0.60,
     "lateral_movement_xdomain":  0.65,  # Pass-the-Hash / multi-account auth from same IP
     "credential_stuffing":       0.50,
+    # Insider threat indicators
+    "insider_offhours_data":     0.35,  # High data volume during off-hours
+    "insider_rapid_access":      0.30,  # Rapid access to many distinct resources
+    "insider_sensitive_access":  0.40,  # Access to sensitive/unusual resource types
 }
 
 _ANOMALY_THRESHOLD = 0.50
@@ -36,12 +40,17 @@ def compute_anomaly(
     attack_chain_flags: list[str],
     is_threat_ip: bool = False,
     reasons: dict[str, str] | None = None,
+    weight_overrides: dict[str, float] | None = None,
 ) -> AnomalyResult:
     active = list(baseline_flags) + list(attack_chain_flags)
     if is_threat_ip:
         active.append("threat_ip_confirmed")
 
-    score = min(1.0, sum(_WEIGHTS.get(f, 0.0) for f in active))
+    effective_weights = dict(_WEIGHTS)
+    if weight_overrides:
+        effective_weights.update(weight_overrides)
+
+    score = min(1.0, sum(effective_weights.get(f, 0.0) for f in active))
 
     all_reasons: dict[str, str] = dict(reasons or {})
     if is_threat_ip:
