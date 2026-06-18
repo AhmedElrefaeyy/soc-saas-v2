@@ -100,15 +100,19 @@ class DetectionEngine:
     async def _is_rate_limited(self, rule: DetectionRule) -> bool:
         """
         Returns True if this rule has exceeded its per-minute alert cap.
-        Uses a simple INCR/EXPIRE counter — acceptable race condition (soft limit).
+        Uses a pipeline INCR + EXPIRE — atomic enough for a soft rate limit.
         """
         conditions = rule.conditions if isinstance(rule.conditions, dict) else {}
         max_per_min = int(conditions.get("max_alerts_per_minute", _RULE_RATE_LIMIT_DEFAULT))
 
-        rl_key = self._client._key(f"rl:{rule.id}")
-        count = await self._client.incr(rl_key)
-        if count == 1:
-            await self._client.expire(rl_key, _RULE_RATE_LIMIT_WINDOW)
+        # Use pipeline on the full key directly (TenantRedisClient._key() pre-computes
+        # the tenant-prefixed key; pipeline bypasses the auto-prefix wrappers).
+        full_key = self._client._key(f"rl:{rule.id}")
+        pipe = self._client.pipeline()
+        pipe.incr(full_key)
+        pipe.expire(full_key, _RULE_RATE_LIMIT_WINDOW)
+        results = await pipe.execute()
+        count = int(results[0])
 
         if count > max_per_min:
             logger.warning(
