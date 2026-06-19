@@ -28,6 +28,14 @@ from app.models.chat import ChatMessage
 from app.models.rag_chunk import RAGChunk
 from app.models.notification_channel import NotificationChannel
 from app.models.suppression_rule import SuppressionRule
+from app.models.playbook import (
+    PlaybookTemplate,
+    PlaybookTemplateStep,
+    Playbook,
+    PlaybookStep,
+    PlaybookRun,
+)
+from app.models.response_action import ResponseAction
 
 __all__ = [
     "Base",
@@ -55,4 +63,10 @@ __all__ = [
     "RAGChunk",
     "NotificationChannel",
     "SuppressionRule",
+    "PlaybookTemplate",
+    "PlaybookTemplateStep",
+    "Playbook",
+    "PlaybookStep",
+    "PlaybookRun",
+    "ResponseAction",
 ]

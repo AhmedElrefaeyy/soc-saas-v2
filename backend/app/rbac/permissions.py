@@ -46,3 +46,11 @@ class Permission(str, Enum):
     INVESTIGATIONS_UPDATE = "investigations:update"   # notes, status, verdict, assign
     INVESTIGATIONS_MANAGE = "investigations:manage"   # merge, split, force-close
     HUNT_QUERY            = "hunt:query"             # threat hunting queries
+
+    # ─── Playbook Generator / SOAR ────────────────────────────────────────────
+    PLAYBOOKS_READ    = "playbooks:read"
+    PLAYBOOKS_MANAGE  = "playbooks:manage"    # generate, execute, complete steps
+    PLAYBOOKS_ADMIN   = "playbooks:admin"     # manage templates (admin/owner only)
+
+    # ─── Response Actions / Agent Containment ────────────────────────────────
+    RESPONSE_EXECUTE  = "response:execute"    # quarantine, isolate, release agents

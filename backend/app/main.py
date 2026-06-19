@@ -75,6 +75,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     asyncio.create_task(_maybe_ingest_rag())
     # ──────────────────────────────────────────────────────────────────────
 
+    # ── Seed system playbook templates ────────────────────────────────────
+    async def _seed_playbooks() -> None:
+        try:
+            async with database_manager.session() as db:
+                from app.services.playbook_seed import seed_system_playbook_templates
+                await seed_system_playbook_templates(db)
+        except Exception:
+            logger.warning("playbook_seed_failed", exc_info=True)
+
+    asyncio.create_task(_seed_playbooks())
+    # ──────────────────────────────────────────────────────────────────────
+
     # Redis is optional — rate limiting degrades gracefully when unavailable.
     # A missing or unreachable Redis must never prevent the app from starting.
     try:

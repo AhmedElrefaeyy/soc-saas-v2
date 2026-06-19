@@ -21,6 +21,9 @@ class AgentResponse(BaseModel):
     last_seen_at: datetime | None
     config: dict[str, Any]
     tags: list[str]
+    containment_state: str = "none"
+    containment_reason: str | None = None
+    contained_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 

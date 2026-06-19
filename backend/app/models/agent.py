@@ -24,6 +24,13 @@ class AgentStatus(str, enum.Enum):
     DEGRADED = "degraded"
 
 
+class ContainmentState(str, enum.Enum):
+    NONE = "none"
+    QUARANTINED = "quarantined"   # blocks heartbeat + ingest
+    ISOLATED = "isolated"          # blocks ingest only
+    MUTED = "muted"                # suppresses alerts, ingest continues
+
+
 class Agent(Base, TimestampMixin, SoftDeleteMixin):
     """
     A deployed SOC agent instance.  One agent = one host endpoint.
@@ -61,6 +68,19 @@ class Agent(Base, TimestampMixin, SoftDeleteMixin):
     )
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)
     tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+
+    # ─── Containment ─────────────────────────────────────────────────────────
+    containment_state: Mapped[ContainmentState] = mapped_column(
+        Enum(ContainmentState, name="agent_containment_state_enum",
+             values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ContainmentState.NONE,
+    )
+    containment_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    contained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    contained_by_id: Mapped[UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
     # ─── Relationships ────────────────────────────────────────────────────────
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="agents", lazy="noload")  # type: ignore[name-defined]

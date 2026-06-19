@@ -113,6 +113,16 @@ class ServiceUnavailableError(AppError):
         )
 
 
+class LockedError(AppError):
+    def __init__(self, message: str = "Resource is locked", details: Any = None) -> None:
+        super().__init__(
+            message=message,
+            code="AGENT_LOCKED",
+            status_code=423,
+            details=details,
+        )
+
+
 # ─── Response builder ─────────────────────────────────────────────────────────
 
 def _error_response(

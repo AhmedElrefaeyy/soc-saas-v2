@@ -119,6 +119,17 @@ class DetectionWorker:
                             mitre_techniques=alert.mitre_techniques,
                             created_at=alert.created_at,
                         ))
+                        # Auto-generate IR playbook — non-blocking, failure never affects pipeline
+                        asyncio.create_task(_auto_generate_playbook(
+                            alert_id=alert.id,
+                            tenant_id=tenant_uuid,
+                            alert_title=alert.title or "Security Alert",
+                            severity=alert.severity.value,
+                            source_host=alert.source_host,
+                            mitre_techniques=list(alert.mitre_techniques or []),
+                            mitre_tactics=list(alert.mitre_tactics or []),
+                            evidence=dict(alert.evidence or {}),
+                        ))
 
                 # Fan out to WebSocket clients
                 ws_client = TenantRedisClient(redis, tenant_id_str, "pipeline")
@@ -137,6 +148,51 @@ class DetectionWorker:
                     await publish_to_tenant_ws(ws_client, stream_names.ALERTS_PUBSUB_CHANNEL, msg.to_json())
             else:
                 await db.commit()
+
+
+async def _auto_generate_playbook(
+    alert_id: UUID,
+    tenant_id: UUID,
+    alert_title: str,
+    severity: str,
+    source_host: str | None,
+    mitre_techniques: list[str],
+    mitre_tactics: list[str],
+    evidence: dict,
+) -> None:
+    try:
+        from app.core.database import database_manager
+        from app.models.tenant import Tenant
+        from app.services.playbook_service import PlaybookGeneratorService
+        from sqlalchemy import select
+
+        async with database_manager.session() as db:
+            tenant_result = await db.execute(
+                select(Tenant.name).where(Tenant.id == tenant_id)
+            )
+            company_name = tenant_result.scalar_one_or_none() or "Your Organization"
+            playbook = await PlaybookGeneratorService.generate(
+                db=db,
+                tenant_id=tenant_id,
+                alert_id=alert_id,
+                alert_title=alert_title,
+                severity=severity,
+                source_host=source_host,
+                mitre_techniques=mitre_techniques,
+                mitre_tactics=mitre_tactics,
+                evidence=evidence,
+                company_name=company_name,
+            )
+            await db.commit()
+            logger.info(
+                "playbook_auto_generated",
+                playbook_id=str(playbook.id),
+                alert_id=str(alert_id),
+                incident_id=playbook.incident_id,
+                generated_by=playbook.generated_by,
+            )
+    except Exception:
+        logger.warning("playbook_auto_generate_failed", alert_id=str(alert_id), exc_info=True)
 
 
 def _dict_to_normalized_event(payload: dict[str, Any]) -> NormalizedEvent:

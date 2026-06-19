@@ -8,8 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import CurrentMember, CurrentUser, require_permission
-from app.core.exceptions import UnauthorizedError
+from app.core.exceptions import LockedError, UnauthorizedError
 from app.core.redis import TenantRedisClient, get_redis
+from app.models.agent import ContainmentState
 from app.ingestion.schemas import (
     AgentEnrollRequest,
     AgentEnrollResponse,
@@ -76,6 +77,13 @@ async def ingest_batch(
     from redis.asyncio import Redis
     from app.pipeline import stream_names
 
+    # Quarantined and isolated agents cannot send telemetry
+    if agent.containment_state in (ContainmentState.QUARANTINED, ContainmentState.ISOLATED):
+        raise LockedError(
+            f"Agent is {agent.containment_state.value} — ingest blocked. "
+            f"Reason: {agent.containment_reason or 'Security containment active'}",
+        )
+
     redis_typed: Redis[str] = redis  # type: ignore[assignment]
     tenant_client = TenantRedisClient(
         redis_typed, str(agent.tenant_id), stream_names.SUBSYSTEM
@@ -91,6 +99,13 @@ async def heartbeat(
     agent: AuthenticatedAgent,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> APIResponse[EmptyResponse]:
+    # Quarantined agents cannot heartbeat — full lockout
+    if agent.containment_state == ContainmentState.QUARANTINED:
+        raise LockedError(
+            f"Agent is quarantined — heartbeat blocked. "
+            f"Reason: {agent.containment_reason or 'Security quarantine active'}",
+        )
+
     await IngestionService.record_heartbeat(db, agent, payload)
     await db.commit()
     return APIResponse.ok(EmptyResponse())
