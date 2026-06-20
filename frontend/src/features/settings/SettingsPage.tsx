@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  User, Building2, Key, Users, Bell,
+  User, Building2, Key, Users, Bell, Bot,
   Plus, Copy, Check, Trash2, CheckCircle,
   Mail, ChevronDown, ChevronUp, Shield, X, AlertCircle, Lock, Camera, Loader,
+  Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { formatRelativeTime } from '@/lib/utils'
@@ -15,6 +16,8 @@ import { invitationsApi } from '@/api/invitations'
 import type { Invitation } from '@/api/invitations'
 import { extractApiError } from '@/lib/utils'
 import { TIMEZONE_OPTIONS } from '@/lib/timezone'
+import { playbookAutoApi } from '@/api/reports'
+import type { AutoPlaybookConfig } from '@/api/reports'
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
 
@@ -1349,6 +1352,165 @@ function NotificationsTab() {
   )
 }
 
+// ─── Automation Tab ───────────────────────────────────────────────────────────
+
+const SEVERITY_OPTIONS: { value: AutoPlaybookConfig['min_severity']; label: string; color: string; desc: string }[] = [
+  { value: 'critical', label: 'Critical only',         color: '#EF4444', desc: 'Only generate for CRITICAL severity alerts' },
+  { value: 'high',     label: 'High & Critical',       color: '#F97316', desc: 'Generate for HIGH and CRITICAL alerts' },
+  { value: 'medium',   label: 'Medium, High & Critical', color: '#F59E0B', desc: 'Generate for MEDIUM, HIGH, and CRITICAL alerts' },
+  { value: 'low',      label: 'All severities',        color: '#6B7280', desc: 'Generate a playbook for every alert' },
+]
+
+function AutomationTab() {
+  const [cfg,     setCfg]     = useState<AutoPlaybookConfig>({ enabled: false, min_severity: 'critical' })
+  const [loading, setLoading] = useState(true)
+  const [saving,  setSaving]  = useState(false)
+  const [saved,   setSaved]   = useState(false)
+  const [error,   setError]   = useState<string | null>(null)
+
+  useEffect(() => {
+    playbookAutoApi.getConfig()
+      .then(c => setCfg(c))
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleSave = async () => {
+    setSaving(true); setError(null)
+    try {
+      const updated = await playbookAutoApi.updateConfig(cfg)
+      setCfg(updated)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err) {
+      setError(extractApiError(err))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const activeSeverity = SEVERITY_OPTIONS.find(s => s.value === cfg.min_severity)!
+
+  return (
+    <div style={{ maxWidth: 520 }}>
+      <SectionHeader
+        title="Automation"
+        description="Configure AI-powered automatic responses to security events"
+      />
+
+      {/* Auto Playbook card */}
+      <div style={{
+        borderRadius: 10, border: `1px solid ${cfg.enabled ? 'rgba(139,92,246,0.25)' : 'rgba(255,255,255,0.06)'}`,
+        background: cfg.enabled ? 'rgba(139,92,246,0.04)' : '#0D0D0D',
+        transition: 'all 200ms', overflow: 'hidden', marginBottom: 20,
+      }}>
+        {/* Card header + master toggle */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Zap size={18} style={{ color: '#8B5CF6' }} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#F5F7FA', fontFamily: "'Space Grotesk', sans-serif" }}>
+              Auto-Generate Playbooks
+            </div>
+            <div style={{ fontSize: 11, color: '#5C6373', marginTop: 2 }}>
+              Automatically create an AI response playbook when an alert fires
+            </div>
+          </div>
+          {/* Toggle */}
+          <div
+            onClick={() => setCfg(c => ({ ...c, enabled: !c.enabled }))}
+            style={{
+              width: 44, height: 24, borderRadius: 12, flexShrink: 0, cursor: 'pointer',
+              background: cfg.enabled ? '#8B5CF6' : 'rgba(255,255,255,0.1)',
+              border: `1px solid ${cfg.enabled ? '#7C3AED' : 'rgba(255,255,255,0.1)'}`,
+              position: 'relative', transition: 'all 200ms',
+            }}
+          >
+            <div style={{
+              position: 'absolute', top: 3, left: cfg.enabled ? 22 : 3,
+              width: 18, height: 18, borderRadius: '50%', background: '#fff',
+              transition: 'left 200ms', boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
+            }} />
+          </div>
+        </div>
+
+        {/* Severity selector — only visible when enabled */}
+        {cfg.enabled && (
+          <div style={{ padding: '16px 18px' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#5C6373', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: 12 }}>
+              Minimum Severity Threshold
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {SEVERITY_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  onClick={() => setCfg(c => ({ ...c, min_severity: opt.value }))}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+                    borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+                    background: cfg.min_severity === opt.value ? `${opt.color}12` : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${cfg.min_severity === opt.value ? opt.color + '40' : 'rgba(255,255,255,0.06)'}`,
+                    transition: 'all 120ms',
+                  }}
+                >
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: opt.color, flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: cfg.min_severity === opt.value ? '#F5F7FA' : '#8B95A7' }}>{opt.label}</div>
+                    <div style={{ fontSize: 10, color: '#5C6373', marginTop: 1 }}>{opt.desc}</div>
+                  </div>
+                  {cfg.min_severity === opt.value && <CheckCircle size={13} style={{ color: opt.color }} />}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Current status info */}
+      <div style={{ padding: '10px 14px', borderRadius: 8, marginBottom: 20, fontSize: 12, lineHeight: 1.6,
+        background: cfg.enabled ? 'rgba(16,185,129,0.06)' : 'rgba(255,255,255,0.03)',
+        border: `1px solid ${cfg.enabled ? 'rgba(16,185,129,0.15)' : 'rgba(255,255,255,0.06)'}`,
+        color: cfg.enabled ? '#6EE7B7' : '#5C6373',
+      }}>
+        {cfg.enabled
+          ? `Active — playbooks will be generated automatically for ${activeSeverity.label.toLowerCase()} alerts using AI analysis.`
+          : 'Disabled — playbooks will only be generated manually by analysts.'}
+      </div>
+
+      {error && (
+        <div style={{ marginBottom: 12, padding: '8px 12px', borderRadius: 6, fontSize: 12,
+          background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.2)', color: '#F87171' }}>
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#5C6373', fontSize: 12 }}>
+          <Loader size={14} className="animate-spin" /> Loading configuration…
+        </div>
+      ) : (
+        <Button variant="primary" loading={saving} onClick={handleSave}>
+          {saved ? <><Check size={13} /> Saved</> : 'Save Configuration'}
+        </Button>
+      )}
+
+      {/* Info callout */}
+      <div style={{ marginTop: 24, padding: '14px 16px', borderRadius: 8, background: 'rgba(59,130,246,0.05)', border: '1px solid rgba(59,130,246,0.12)' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: '#60A5FA', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Bot size={12} /> How it works
+        </div>
+        <ul style={{ margin: 0, paddingLeft: 16, fontSize: 12, color: '#8B95A7', lineHeight: 1.8 }}>
+          <li>When a detection rule fires and creates an alert, the system checks this configuration</li>
+          <li>If enabled and the alert severity meets the threshold, an AI playbook is generated in the background</li>
+          <li>The playbook appears in the Playbooks section tagged as "Auto-Generated"</li>
+          <li>Analysts can then review, execute, and track each step</li>
+        </ul>
+      </div>
+    </div>
+  )
+}
+
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 import type { MemberRole } from '@/types/tenant'
@@ -1359,6 +1521,7 @@ const ALL_TABS = [
   { id: 'api-keys',      label: 'API Keys',      icon: Key,       minRole: 'admin'   as MemberRole },
   { id: 'members',       label: 'Members',       icon: Users,     minRole: 'viewer'  as MemberRole },
   { id: 'notifications', label: 'Notifications', icon: Bell,      minRole: 'viewer'  as MemberRole },
+  { id: 'automation',    label: 'Automation',    icon: Zap,       minRole: 'admin'   as MemberRole },
 ] as const
 
 type TabId = typeof ALL_TABS[number]['id']
@@ -1418,6 +1581,7 @@ export function SettingsPage() {
         {activeTab === 'api-keys'      && <ApiKeysTab       />}
         {activeTab === 'members'       && <MembersTab       />}
         {activeTab === 'notifications' && <NotificationsTab />}
+        {activeTab === 'automation'    && <AutomationTab    />}
       </div>
     </div>
   )

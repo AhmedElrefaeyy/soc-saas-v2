@@ -39,6 +39,7 @@ export interface Playbook {
   source_host: string | null
   status: 'draft' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
   generated_by: 'llm' | 'template' | 'manual' | 'fallback'
+  created_by_id: string | null
   variables: Record<string, string>
   created_at: string
   updated_at: string

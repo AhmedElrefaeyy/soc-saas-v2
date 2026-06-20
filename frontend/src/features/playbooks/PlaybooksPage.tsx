@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { BookOpen, Plus, ChevronRight, Zap, Clock, CheckCircle, XCircle, X } from 'lucide-react'
+import { BookOpen, Plus, ChevronRight, Zap, Clock, CheckCircle, XCircle, X, Bot } from 'lucide-react'
 import { playbooksApi, type Playbook } from '@/api/playbooks'
 import { Button } from '@/components/ui/Button'
 import { extractApiError } from '@/lib/utils'
@@ -358,9 +358,21 @@ function PlaybookRow({ pb, onClick }: { pb: Playbook; onClick: () => void }) {
       }}
     >
       <td style={{ padding: '9px 12px' }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#F5F7FA' }}>
-          {pb.title}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#F5F7FA' }}>{pb.title}</span>
+          {pb.created_by_id === null && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 3,
+              padding: '1px 6px', borderRadius: 4, fontSize: 8, fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: '0.5px',
+              background: 'rgba(139,92,246,0.12)', color: '#A78BFA',
+              border: '1px solid rgba(139,92,246,0.2)',
+              fontFamily: "'JetBrains Mono', monospace",
+            }}>
+              <Bot size={8} /> Auto
+            </span>
+          )}
+        </div>
       </td>
       <td style={{ padding: '9px 12px' }}>
         <SeverityBadge severity={pb.severity} />
