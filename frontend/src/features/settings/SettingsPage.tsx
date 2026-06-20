@@ -446,63 +446,340 @@ function ProfileTab() {
 
 // ─── Organization Tab ─────────────────────────────────────────────────────────
 
+const RETENTION_OPTIONS = [
+  { label: '7 days',    value: 7 },
+  { label: '30 days',   value: 30 },
+  { label: '60 days',   value: 60 },
+  { label: '90 days',   value: 90 },
+  { label: '180 days',  value: 180 },
+  { label: '1 year',    value: 365 },
+  { label: '2 years',   value: 730 },
+  { label: '10 years',  value: 3650 },
+]
+
 function OrgTab() {
-  const activeTenantId = useAuthStore(s => s.activeTenantId)
+  const activeTenantId   = useAuthStore(s => s.activeTenantId)
+  const memberRole       = useTenantStore(s => s.memberRole)
+  const isOwner          = memberRole === 'owner'
+
   const [tenant, setTenant] = useState<TenantInfo | null>(null)
-  const [name,   setName]   = useState('')
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
+  const [name,          setName]          = useState('')
+  const [timezone,      setTimezone]      = useState('UTC')
+  const [eventRetention,setEventRetention]= useState(90)
+  const [alertRetention,setAlertRetention]= useState(365)
+  const [logoUrl,       setLogoUrl]       = useState<string | null>(null)
+  const [saving,   setSaving]   = useState(false)
+  const [saved,    setSaved]    = useState(false)
+  const [saveErr,  setSaveErr]  = useState<string | null>(null)
+
+  // Logo upload state
+  const logoInputRef    = useRef<HTMLInputElement>(null)
+  const [logoUploading, setLogoUploading] = useState(false)
+
+  // Danger zone state
+  const [showDanger,   setShowDanger]   = useState(false)
+  const [deleteConfirm,setDeleteConfirm]= useState('')
+  const [deleting,     setDeleting]     = useState(false)
+  const [deleteErr,    setDeleteErr]    = useState<string | null>(null)
 
   useEffect(() => {
     if (!activeTenantId) return
     settingsApi.getTenant(activeTenantId).then(t => {
       setTenant(t)
       setName(t.name ?? '')
+      setTimezone(t.timezone ?? 'UTC')
+      setEventRetention(t.event_retention_days ?? 90)
+      setAlertRetention(t.alert_retention_days ?? 365)
+      setLogoUrl(t.logo_url ?? null)
     }).catch(console.error)
   }, [activeTenantId])
 
   const handleSave = async () => {
     if (!activeTenantId) return
     setSaving(true)
+    setSaveErr(null)
     try {
-      await settingsApi.updateTenant(activeTenantId, { name })
+      const updated = await settingsApi.updateTenant(activeTenantId, {
+        name,
+        timezone,
+        logo_url: logoUrl,
+        event_retention_days: eventRetention,
+        alert_retention_days: alertRetention,
+      })
+      setTenant(updated)
       setSaved(true)
-      setTimeout(() => setSaved(false), 2000)
+      setTimeout(() => setSaved(false), 2500)
+    } catch (err) {
+      setSaveErr(extractApiError(err))
     } finally {
       setSaving(false)
     }
   }
 
+  // Convert uploaded image to base64 data-URL and store as logo_url
+  const handleLogoFile = (file: File) => {
+    if (!file.type.startsWith('image/')) return
+    setLogoUploading(true)
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      setLogoUrl(e.target?.result as string ?? null)
+      setLogoUploading(false)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleDeleteWorkspace = async () => {
+    if (!activeTenantId || !isOwner) return
+    if (deleteConfirm !== tenant?.slug) return
+    setDeleting(true)
+    setDeleteErr(null)
+    try {
+      await settingsApi.deleteTenant(activeTenantId)
+      window.location.href = '/setup'
+    } catch (err) {
+      setDeleteErr(extractApiError(err))
+      setDeleting(false)
+    }
+  }
+
   return (
-    <div style={{ maxWidth: 480 }}>
-      <SectionHeader title="Organization" description="Manage your workspace settings" />
+    <div style={{ maxWidth: 600 }}>
+      <SectionHeader title="Organization" description="Manage your workspace identity, data policies, and settings" />
 
-      <FormField label="Organization Name">
-        <input
-          className="inp"
-          style={{ width: '100%' }}
-          placeholder="Your organization name"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleSave()}
-        />
-      </FormField>
+      {/* ── Workspace Identity ─────────────────────────────────────────────── */}
+      <div style={{
+        background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: 10, padding: '20px 24px', marginBottom: 20,
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.5px', color: '#5C6373', marginBottom: 16 }}>
+          Workspace Identity
+        </div>
 
-      {tenant?.slug && (
-        <FormField label="Slug">
+        {/* Logo row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+          <div
+            onClick={() => !logoUploading && logoInputRef.current?.click()}
+            style={{
+              width: 64, height: 64, borderRadius: 12, flexShrink: 0,
+              background: logoUrl ? 'transparent' : 'rgba(59,130,246,0.08)',
+              border: `1px solid ${logoUrl ? 'rgba(255,255,255,0.1)' : 'rgba(59,130,246,0.25)'}`,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', overflow: 'hidden', position: 'relative',
+            }}
+          >
+            {logoUploading ? (
+              <Loader size={18} style={{ color: '#60A5FA', animation: 'spin 1s linear infinite' }} />
+            ) : logoUrl ? (
+              <img src={logoUrl} alt="logo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+            ) : (
+              <Building2 size={22} style={{ color: '#3B82F6', opacity: 0.5 }} />
+            )}
+          </div>
+          <div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#B8C0CC', marginBottom: 4 }}>
+              Workspace Logo
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => logoInputRef.current?.click()}
+                style={{
+                  fontSize: 11, padding: '4px 12px', borderRadius: 6,
+                  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                  color: '#B8C0CC', cursor: 'pointer',
+                }}
+              >
+                <Camera size={11} style={{ display: 'inline', marginRight: 5 }} />
+                Upload
+              </button>
+              {logoUrl && (
+                <button
+                  onClick={() => setLogoUrl(null)}
+                  style={{
+                    fontSize: 11, padding: '4px 12px', borderRadius: 6,
+                    background: 'rgba(239,68,68,0.07)', border: '1px solid rgba(239,68,68,0.2)',
+                    color: '#FCA5A5', cursor: 'pointer',
+                  }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+            <div style={{ fontSize: 10, color: '#3A4150', marginTop: 4 }}>
+              PNG or SVG recommended. Max 2MB. Stored as base64.
+            </div>
+          </div>
+          <input
+            ref={logoInputRef}
+            type="file"
+            accept="image/*"
+            style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleLogoFile(f) }}
+          />
+        </div>
+
+        <FormField label="Organization Name">
           <input
             className="inp"
-            style={{ width: '100%', opacity: 0.5, cursor: 'not-allowed' }}
-            value={tenant.slug}
-            disabled
-            readOnly
+            style={{ width: '100%' }}
+            placeholder="Your organization name"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleSave()}
           />
         </FormField>
-      )}
 
+        {tenant?.slug && (
+          <FormField label="Slug">
+            <input
+              className="inp"
+              style={{ width: '100%', opacity: 0.5, cursor: 'not-allowed' }}
+              value={tenant.slug}
+              disabled readOnly
+            />
+            <div style={{ fontSize: 10, color: '#3A4150', marginTop: 4 }}>
+              Used in API paths and sharing links. Cannot be changed after creation.
+            </div>
+          </FormField>
+        )}
+
+        <FormField label="Workspace Timezone">
+          <select
+            className="inp"
+            style={{ width: '100%' }}
+            value={timezone}
+            onChange={e => setTimezone(e.target.value)}
+          >
+            {TIMEZONE_OPTIONS.map(tz => (
+              <option key={tz.value} value={tz.value}>{tz.label}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 10, color: '#3A4150', marginTop: 4 }}>
+            Used for report timestamps, scheduled jobs, and alert display times.
+          </div>
+        </FormField>
+      </div>
+
+      {/* ── Data Retention Policies ──────────────────────────────────────────── */}
+      <div style={{
+        background: 'rgba(255,255,255,0.015)', border: '1px solid rgba(255,255,255,0.06)',
+        borderRadius: 10, padding: '20px 24px', marginBottom: 20,
+      }}>
+        <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.5px', color: '#5C6373', marginBottom: 4 }}>
+          Data Retention Policies
+        </div>
+        <div style={{ fontSize: 11, color: '#3A4150', marginBottom: 16 }}>
+          Raw events and alerts older than these thresholds are automatically purged. Changes take effect at the next nightly purge window.
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <FormField label="Raw Event Retention">
+            <select
+              className="inp"
+              style={{ width: '100%' }}
+              value={eventRetention}
+              onChange={e => setEventRetention(Number(e.target.value))}
+            >
+              {RETENTION_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="Alert Retention">
+            <select
+              className="inp"
+              style={{ width: '100%' }}
+              value={alertRetention}
+              onChange={e => setAlertRetention(Number(e.target.value))}
+            >
+              {RETENTION_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </FormField>
+        </div>
+
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '10px 14px', borderRadius: 8, marginTop: 8,
+          background: 'rgba(251,191,36,0.05)', border: '1px solid rgba(251,191,36,0.15)',
+          fontSize: 11, color: '#FCD34D',
+        }}>
+          <AlertCircle size={12} />
+          Shortening retention will permanently delete historical data beyond the new threshold.
+        </div>
+      </div>
+
+      {/* Save */}
+      {saveErr && (
+        <div style={{ padding: '10px 14px', marginBottom: 12, borderRadius: 8,
+          background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)',
+          fontSize: 12, color: '#FCA5A5' }}>
+          {saveErr}
+        </div>
+      )}
       <Button variant="primary" loading={saving} onClick={handleSave}>
         {saved ? <><Check size={13} /> Saved</> : 'Save Changes'}
       </Button>
+
+      {/* ── Danger Zone ─────────────────────────────────────────────────────── */}
+      {isOwner && (
+        <div style={{
+          marginTop: 40, borderRadius: 10,
+          border: '1px solid rgba(239,68,68,0.25)',
+          background: 'rgba(239,68,68,0.03)',
+          overflow: 'hidden',
+        }}>
+          <button
+            onClick={() => setShowDanger(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8,
+              width: '100%', padding: '14px 20px',
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: '#F87171', fontSize: 12, fontWeight: 700,
+            }}
+          >
+            <AlertCircle size={14} />
+            Danger Zone
+            {showDanger
+              ? <ChevronUp size={13} style={{ marginLeft: 'auto' }} />
+              : <ChevronDown size={13} style={{ marginLeft: 'auto' }} />}
+          </button>
+
+          {showDanger && (
+            <div style={{ padding: '0 20px 20px', borderTop: '1px solid rgba(239,68,68,0.15)' }}>
+              <div style={{ fontSize: 12, color: '#8B95A7', margin: '14px 0 16px' }}>
+                Deleting this workspace is permanent and irreversible. All agents, alerts, investigations,
+                events, and members will be permanently removed.
+              </div>
+
+              <div style={{ fontSize: 11, color: '#F87171', marginBottom: 8, fontWeight: 600 }}>
+                Type <code style={{ fontFamily: "'JetBrains Mono', monospace", background: 'rgba(239,68,68,0.1)', padding: '1px 6px', borderRadius: 4 }}>{tenant?.slug}</code> to confirm
+              </div>
+              <input
+                className="inp"
+                style={{ width: '100%', marginBottom: 12, borderColor: 'rgba(239,68,68,0.3)' }}
+                placeholder={tenant?.slug ?? ''}
+                value={deleteConfirm}
+                onChange={e => { setDeleteConfirm(e.target.value); setDeleteErr(null) }}
+              />
+
+              {deleteErr && (
+                <div style={{ fontSize: 12, color: '#FCA5A5', marginBottom: 10 }}>{deleteErr}</div>
+              )}
+
+              <Button
+                variant="danger"
+                disabled={deleteConfirm !== tenant?.slug || deleting}
+                loading={deleting}
+                onClick={handleDeleteWorkspace}
+              >
+                <Trash2 size={13} />
+                Permanently Delete Workspace
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
