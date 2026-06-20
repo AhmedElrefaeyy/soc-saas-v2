@@ -81,20 +81,54 @@ async def _send_email(
     body_html: str = "",
 ) -> bool:
     """
-    Provider priority: Resend → SMTP → Brevo.
+    Provider priority: SMTP (port 465 SSL) → Resend → Brevo.
 
-    Resend is tried first: it uses HTTPS (no port-blocking on Railway) and
-    sends from the verified resend.dev domain, so emails land in inbox.
-    SMTP (Gmail App Password) is next: blocks on Railway port 587 but works
-    for local dev.  Brevo is last: sends from a Gmail address via a third-party
-    relay, which Gmail spam-filters see as spoofed.
+    Gmail SMTP with an App Password sends through Google's own servers, so
+    DKIM/SPF pass and emails land directly in inbox — no third-party relay
+    reputation issues.  Port 465 (SSL) works on Railway; port 587 (STARTTLS)
+    does not.  Resend is the fallback (HTTPS, no port restrictions).
+    Brevo is last resort — it sends from a Gmail address via a relay which
+    Gmail spam-filters flag as spoofed.
 
     Each provider falls through to the next on failure.
     Returns True on first success, False if all providers fail.
     """
     settings = get_settings()
 
-    # ── 1. Resend (HTTPS, verified resend.dev domain → inbox delivery) ────────
+    # ── 1. SMTP port 465 (Gmail SSL — authenticated, inbox delivery) ──────────
+    if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
+        try:
+            import aiosmtplib
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+
+            smtp_port = int(settings.SMTP_PORT)
+            from_addr = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"]    = f"NEURASHIELD SOC <{from_addr}>"
+            msg["To"]      = to_email
+            msg.attach(MIMEText(body_text, "plain", "utf-8"))
+            if body_html:
+                msg.attach(MIMEText(body_html, "html", "utf-8"))
+
+            await aiosmtplib.send(
+                msg,
+                hostname=settings.SMTP_HOST,
+                port=smtp_port,
+                username=settings.SMTP_USER,
+                password=settings.SMTP_PASSWORD,
+                use_tls=smtp_port == 465,
+                start_tls=smtp_port == 587,
+                timeout=15,
+            )
+            log.info("email_sent_smtp", to=to_email, subject=subject[:60])
+            return True
+        except Exception as exc:
+            log.warning("email_smtp_error", to=to_email, error=str(exc))
+            # fall through to Resend
+
+    # ── 2. Resend (HTTPS, no port-blocking on Railway) ─────────────────────────
     if settings.RESEND_API_KEY:
         try:
             import httpx as _httpx
@@ -114,38 +148,6 @@ async def _send_email(
             log.warning("email_resend_failed", to=to_email, status=resp.status_code, body=resp.text[:300])
         except Exception as exc:
             log.warning("email_resend_error", to=to_email, error=str(exc))
-            # fall through to SMTP
-
-    # ── 2. SMTP (Gmail App Password — works locally, may be blocked on Railway) ─
-    if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
-        try:
-            import aiosmtplib
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.text import MIMEText
-
-            from_addr = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = subject
-            msg["From"]    = f"NEURASHIELD SOC <{from_addr}>"
-            msg["To"]      = to_email
-            msg.attach(MIMEText(body_text, "plain", "utf-8"))
-            if body_html:
-                msg.attach(MIMEText(body_html, "html", "utf-8"))
-
-            await aiosmtplib.send(
-                msg,
-                hostname=settings.SMTP_HOST,
-                port=int(settings.SMTP_PORT),
-                username=settings.SMTP_USER,
-                password=settings.SMTP_PASSWORD,
-                use_tls=int(settings.SMTP_PORT) == 465,
-                start_tls=int(settings.SMTP_PORT) == 587,
-                timeout=15,
-            )
-            log.info("email_sent_smtp", to=to_email, subject=subject[:60])
-            return True
-        except Exception as exc:
-            log.warning("email_smtp_error", to=to_email, error=str(exc))
             # fall through to Brevo
 
     # ── 3. Brevo (last resort — sends from Gmail address via relay → may spam) ──
