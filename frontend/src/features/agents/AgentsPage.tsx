@@ -577,7 +577,7 @@ export function AgentsPage() {
           </p>
         </div>
         <Button variant="primary" size="sm" onClick={() => navigate('/installer')}>
-          <Plus size={13} /> Connect Device
+          <Plus size={13} /> Enroll Device
         </Button>
       </div>
 
@@ -669,7 +669,7 @@ export function AgentsPage() {
                       Connect your first device to start monitoring
                     </div>
                     <Button variant="primary" onClick={() => navigate('/installer')}>
-                      Connect Device
+                      Enroll Device
                     </Button>
                   </div>
                 </td>

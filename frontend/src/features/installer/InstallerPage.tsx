@@ -207,7 +207,7 @@ function EmptyState({
           className="btn-primary text-sm flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
-          Generate Token
+          Enroll Device
         </button>
       )}
     </motion.div>
@@ -422,7 +422,7 @@ export function InstallerPage() {
               className="btn-primary text-sm flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
-              Generate Token
+              Enroll Device
             </button>
           )}
         </div>
