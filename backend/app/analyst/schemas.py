@@ -77,6 +77,7 @@ class NoteOut(BaseModel):
     investigation_id: str
     tenant_id:        str
     analyst_id:       UUID
+    analyst_name:     str | None = None
     content:          str
     pinned:           bool
     created_at:       datetime
