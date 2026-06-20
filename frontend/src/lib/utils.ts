@@ -52,6 +52,28 @@ export function truncate(str: string, maxLength: number): string {
 }
 
 export function extractApiError(error: unknown): string {
+  // ApiError (thrown by apiPost/apiGet when the server returns error in body)
+  if (error instanceof Error && error.name === "ApiError") return error.message;
+
+  // AxiosError — server returned 4xx/5xx; try to read the structured error body
+  if (
+    error != null &&
+    typeof error === "object" &&
+    "response" in error &&
+    error.response != null &&
+    typeof error.response === "object" &&
+    "data" in error.response
+  ) {
+    const data = (error.response as { data: unknown }).data;
+    if (data != null && typeof data === "object" && "error" in data) {
+      const apiErr = (data as { error: unknown }).error;
+      if (apiErr != null && typeof apiErr === "object" && "message" in apiErr) {
+        const msg = (apiErr as { message: unknown }).message;
+        if (typeof msg === "string" && msg.length > 0) return msg;
+      }
+    }
+  }
+
   if (error instanceof Error) return error.message;
   if (typeof error === "string") return error;
   return "An unexpected error occurred";
