@@ -901,12 +901,1162 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
         "mitre_techniques": ["T1059.001"],
         "suppression_window_secs": 600,
     },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  RANSOMWARE & IMPACT
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "Ransomware - Shadow Copy Deletion via VSSAdmin or WMI",
+        "description": (
+            "Command line indicates deletion of Volume Shadow Copies — the first step "
+            "in most ransomware attacks to prevent recovery."
+        ),
+        "rule_type": "pattern",
+        "severity": "critical",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "vssadmin"},
+                                {"field": "process.command_line", "op": "contains", "value": "delete"},
+                                {"field": "process.command_line", "op": "contains", "value": "shadow"},
+                            ],
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "wmic"},
+                                {"field": "process.command_line", "op": "contains", "value": "shadowcopy"},
+                                {"field": "process.command_line", "op": "contains", "value": "delete"},
+                            ],
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "wmic"},
+                                {"field": "process.command_line", "op": "contains", "value": "shadow"},
+                                {"field": "process.command_line", "op": "contains", "value": "call"},
+                                {"field": "process.command_line", "op": "contains", "value": "delete"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "vssadmin"},
+                                {"field": "raw.message", "op": "contains", "value": "delete"},
+                                {"field": "raw.message", "op": "contains", "value": "shadow"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Impact"],
+        "mitre_techniques": ["T1490"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Ransomware - Boot Recovery Disabled via BCDEdit",
+        "description": (
+            "BCDEdit used to disable boot recovery and error handling — "
+            "classic ransomware persistence-of-damage technique to prevent OS recovery."
+        ),
+        "rule_type": "pattern",
+        "severity": "critical",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "bcdedit"},
+                                {"field": "process.command_line", "op": "contains", "value": "recoveryenabled"},
+                                {"field": "process.command_line", "op": "contains", "value": "no"},
+                            ],
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "bcdedit"},
+                                {"field": "process.command_line", "op": "contains", "value": "bootstatuspolicy"},
+                                {"field": "process.command_line", "op": "contains", "value": "ignoreallfailures"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "bcdedit"},
+                                {"field": "raw.message", "op": "contains", "value": "recoveryenabled"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Impact"],
+        "mitre_techniques": ["T1490"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Ransomware - Backup Catalog Deletion via wbadmin",
+        "description": (
+            "wbadmin used to delete Windows backup catalog — "
+            "eliminates the last restore point before ransomware encryption begins."
+        ),
+        "rule_type": "pattern",
+        "severity": "critical",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "wbadmin"},
+                                {"field": "process.command_line", "op": "contains", "value": "delete"},
+                                {"field": "process.command_line", "op": "contains", "value": "catalog"},
+                            ],
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "wbadmin"},
+                                {"field": "process.command_line", "op": "contains", "value": "delete"},
+                                {"field": "process.command_line", "op": "contains", "value": "backup"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "wbadmin"},
+                                {"field": "raw.message", "op": "contains", "value": "delete"},
+                                {"field": "raw.message", "op": "contains", "value": "catalog"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Impact"],
+        "mitre_techniques": ["T1490"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Impact - Disk Wipe via Cipher Overwrite",
+        "description": (
+            "cipher.exe /w flag triggered — overwrites free disk space, "
+            "destroying evidence of deleted files. Rare in legitimate use."
+        ),
+        "rule_type": "pattern",
+        "severity": "critical",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.executable", "op": "endswith", "value": "\\cipher.exe"},
+                                {"field": "process.command_line", "op": "contains", "value": "/w:"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "cipher.exe"},
+                                {"field": "raw.message", "op": "contains", "value": "/w:"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Impact"],
+        "mitre_techniques": ["T1561.001"],
+        "suppression_window_secs": 300,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  DEFENSE EVASION
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "Defense Evasion - Windows Firewall Disabled via netsh",
+        "description": (
+            "netsh command used to turn off Windows Firewall — "
+            "commonly done by malware or attackers to allow inbound C2 connections."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "netsh"},
+                                {"field": "process.command_line", "op": "contains", "value": "firewall"},
+                                {"field": "process.command_line", "op": "contains", "value": "state off"},
+                            ],
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "netsh"},
+                                {"field": "process.command_line", "op": "contains", "value": "advfirewall"},
+                                {"field": "process.command_line", "op": "contains", "value": "off"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "netsh"},
+                                {"field": "raw.message", "op": "contains", "value": "firewall"},
+                                {"field": "raw.message", "op": "contains", "value": "off"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Defense Evasion"],
+        "mitre_techniques": ["T1562.004"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Defense Evasion - AMSI Bypass Attempt",
+        "description": (
+            "PowerShell command contains known AMSI bypass strings — "
+            "attackers disable the Antimalware Scan Interface to execute malicious scripts undetected."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "process.command_line", "op": "contains", "value": "amsiInitFailed"},
+                            {"field": "process.command_line", "op": "contains", "value": "AmsiScanBuffer"},
+                            {"field": "process.command_line", "op": "contains", "value": "amsiContext"},
+                            {"field": "process.command_line", "op": "contains", "value": "AmsiUtils"},
+                            {"field": "process.command_line", "op": "contains", "value": "DisableScriptBlockLogging"},
+                            {"field": "process.command_line", "op": "contains", "value": "EnableScriptBlockLogging"},
+                        ],
+                    },
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "raw.message", "op": "contains", "value": "amsiInitFailed"},
+                            {"field": "raw.message", "op": "contains", "value": "AmsiScanBuffer"},
+                            {"field": "raw.message", "op": "contains", "value": "amsiContext"},
+                            {"field": "raw.message", "op": "contains", "value": "DisableScriptBlockLogging"},
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Defense Evasion"],
+        "mitre_techniques": ["T1562.001"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Defense Evasion - ETW Trace Session Disabled",
+        "description": (
+            "Event Tracing for Windows (ETW) provider disabled — "
+            "used to blind security tools that rely on ETW for behavioral telemetry."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "logman"},
+                                {"field": "process.command_line", "op": "contains", "value": "stop"},
+                            ],
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "tracerpt"},
+                                {"field": "process.command_line", "op": "contains", "value": "-stop"},
+                            ],
+                        ],
+                    },
+                    {"field": "raw.windows_event_id", "op": "eq", "value": "4657"},
+                ],
+            },
+        ],
+        "mitre_tactics": ["Defense Evasion"],
+        "mitre_techniques": ["T1562.006"],
+        "suppression_window_secs": 600,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  CREDENTIAL ACCESS
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "Credential Access - SAM / NTDS Hive Copy Attempt",
+        "description": (
+            "Attempt to copy SAM, SYSTEM, SECURITY, or NTDS.dit hive — "
+            "these files contain password hashes for all local and domain accounts."
+        ),
+        "rule_type": "pattern",
+        "severity": "critical",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "process.command_line", "op": "contains", "value": "\\System32\\config\\SAM"},
+                            {"field": "process.command_line", "op": "contains", "value": "\\System32\\config\\SYSTEM"},
+                            {"field": "process.command_line", "op": "contains", "value": "\\System32\\config\\SECURITY"},
+                            {"field": "process.command_line", "op": "contains", "value": "\\Windows\\NTDS\\NTDS.dit"},
+                            {"field": "process.command_line", "op": "contains", "value": "HKLM\\SAM"},
+                            {"field": "process.command_line", "op": "contains", "value": "HKLM\\SYSTEM"},
+                        ],
+                    },
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "raw.message", "op": "contains", "value": "\\config\\SAM"},
+                            {"field": "raw.message", "op": "contains", "value": "NTDS.dit"},
+                            {"field": "raw.message", "op": "contains", "value": "HarddiskVolumeShadowCopy"},
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Credential Access"],
+        "mitre_techniques": ["T1003.002", "T1003.003"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Credential Access - Token Impersonation Logon (Type 9)",
+        "description": (
+            "Logon Type 9 (NewCredentials) detected — "
+            "used by pass-the-hash and token manipulation attacks to impersonate another user "
+            "without knowing their plaintext password."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {"field": "raw.windows_event_id", "op": "eq", "value": "4624"},
+            {"field": "raw.LogonType", "op": "eq", "value": "9"},
+        ],
+        "mitre_tactics": ["Credential Access", "Lateral Movement"],
+        "mitre_techniques": ["T1134.001"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Credential Access - Windows Vault Credential Dump via cmdkey",
+        "description": (
+            "cmdkey /list executed — enumerates credentials stored in Windows Credential Manager. "
+            "Attackers use this to discover stored RDP, network share, and application passwords."
+        ),
+        "rule_type": "pattern",
+        "severity": "medium",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.executable", "op": "endswith", "value": "\\cmdkey.exe"},
+                                {"field": "process.command_line", "op": "contains", "value": "/list"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "cmdkey"},
+                                {"field": "raw.message", "op": "contains", "value": "/list"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Credential Access"],
+        "mitre_techniques": ["T1555.004"],
+        "suppression_window_secs": 600,
+    },
+    {
+        "name": "Credential Access - DCSync via Mimikatz lsadump::dcsync",
+        "description": (
+            "DCSync command detected in process arguments — "
+            "replicates domain controller password database without direct DC access."
+        ),
+        "rule_type": "pattern",
+        "severity": "critical",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "process.command_line", "op": "contains", "value": "lsadump::dcsync"},
+                            {"field": "process.command_line", "op": "contains", "value": "dcsync"},
+                        ],
+                    },
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "raw.message", "op": "contains", "value": "lsadump::dcsync"},
+                            {"field": "raw.message", "op": "contains", "value": "dcsync"},
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Credential Access"],
+        "mitre_techniques": ["T1003.006"],
+        "suppression_window_secs": 300,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  EXECUTION - LOLBins & LIVING-OFF-THE-LAND
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "Execution - BITS Transfer Abuse via BITSAdmin",
+        "description": (
+            "bitsadmin.exe used to create a transfer job — attackers abuse BITS to download "
+            "payloads while blending into normal Windows background traffic."
+        ),
+        "rule_type": "pattern",
+        "severity": "medium",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.executable", "op": "endswith", "value": "\\bitsadmin.exe"},
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "process.command_line", "op": "contains", "value": "/transfer"},
+                                        {"field": "process.command_line", "op": "contains", "value": "/create"},
+                                        {"field": "process.command_line", "op": "contains", "value": "/addfile"},
+                                    ],
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "bitsadmin"},
+                                {"field": "raw.message", "op": "contains", "value": "/transfer"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Defense Evasion", "Command and Control"],
+        "mitre_techniques": ["T1197"],
+        "suppression_window_secs": 600,
+    },
+    {
+        "name": "Execution - .NET Compiler Used in Suspicious Location",
+        "description": (
+            "csc.exe or vbc.exe (C# / VB.NET compiler) invoked from Temp or AppData — "
+            "used to compile malicious code on-the-fly, evading static analysis."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "process.executable", "op": "endswith", "value": "\\csc.exe"},
+                                        {"field": "process.executable", "op": "endswith", "value": "\\vbc.exe"},
+                                    ],
+                                },
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "process.command_line", "op": "contains", "value": "\\AppData\\"},
+                                        {"field": "process.command_line", "op": "contains", "value": "\\Temp\\"},
+                                        {"field": "process.command_line", "op": "contains", "value": "\\tmp\\"},
+                                        {"field": "process.command_line", "op": "contains", "value": "\\Users\\Public\\"},
+                                    ],
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "raw.message", "op": "contains", "value": "csc.exe"},
+                                        {"field": "raw.message", "op": "contains", "value": "vbc.exe"},
+                                    ],
+                                },
+                                {"field": "raw.message", "op": "contains", "value": "\\Temp\\"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Defense Evasion", "Execution"],
+        "mitre_techniques": ["T1027.004"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Execution - InstallUtil LOLBin Abuse",
+        "description": (
+            "InstallUtil.exe executing code from unusual paths — "
+            "a signed Microsoft binary commonly abused to bypass AppLocker and execute arbitrary code."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.executable", "op": "endswith", "value": "\\InstallUtil.exe"},
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "process.command_line", "op": "contains", "value": "\\Temp\\"},
+                                        {"field": "process.command_line", "op": "contains", "value": "\\AppData\\"},
+                                        {"field": "process.command_line", "op": "contains", "value": "/logfile="},
+                                        {"field": "process.command_line", "op": "contains", "value": "/LogToConsole="},
+                                    ],
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "InstallUtil"},
+                                {"field": "raw.message", "op": "contains", "value": "\\Temp\\"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Defense Evasion", "Execution"],
+        "mitre_techniques": ["T1218.004"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Execution - CMSTP UAC Bypass",
+        "description": (
+            "cmstp.exe used with suspicious flags — exploits auto-elevation to bypass UAC "
+            "and execute arbitrary code with administrator privileges."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.executable", "op": "endswith", "value": "\\cmstp.exe"},
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "process.command_line", "op": "contains", "value": "/s"},
+                                        {"field": "process.command_line", "op": "contains", "value": "/au"},
+                                        {"field": "process.command_line", "op": "contains", "value": ".inf"},
+                                    ],
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "cmstp.exe"},
+                                {"field": "raw.message", "op": "contains", "value": "/s"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Privilege Escalation", "Defense Evasion"],
+        "mitre_techniques": ["T1218.003"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Execution - Odbcconf Used as Script Proxy",
+        "description": (
+            "odbcconf.exe with /a REGSVR flag — abused to register and execute "
+            "malicious DLLs while impersonating a legitimate Windows ODBC configuration tool."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.executable", "op": "endswith", "value": "\\odbcconf.exe"},
+                                {"field": "process.command_line", "op": "contains", "value": "regsvr"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "odbcconf"},
+                                {"field": "raw.message", "op": "contains", "value": "regsvr"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Defense Evasion", "Execution"],
+        "mitre_techniques": ["T1218.008"],
+        "suppression_window_secs": 300,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  PRIVILEGE ESCALATION
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "Privilege Escalation - AlwaysInstallElevated MSI Policy",
+        "description": (
+            "AlwaysInstallElevated registry policy detected via Event 4657 — "
+            "allows any user to install MSI packages as SYSTEM, a critical privilege escalation path."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.windows_event_id", "op": "eq", "value": "4657"},
+                                {"field": "raw.message", "op": "contains", "value": "AlwaysInstallElevated"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "AlwaysInstallElevated"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Privilege Escalation"],
+        "mitre_techniques": ["T1548.002"],
+        "suppression_window_secs": 3600,
+    },
+    {
+        "name": "Privilege Escalation - SeTcbPrivilege or SeDebugPrivilege Granted",
+        "description": (
+            "High-privilege token rights (SeTcbPrivilege or SeDebugPrivilege) assigned at logon — "
+            "these allow process injection and SYSTEM-level impersonation."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {"field": "raw.windows_event_id", "op": "eq", "value": "4672"},
+            {
+                "op": "any_of",
+                "conditions": [
+                    {"field": "raw.message", "op": "contains", "value": "SeTcbPrivilege"},
+                    {"field": "raw.message", "op": "contains", "value": "SeDebugPrivilege"},
+                ],
+            },
+        ],
+        "mitre_tactics": ["Privilege Escalation"],
+        "mitre_techniques": ["T1134"],
+        "suppression_window_secs": 600,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  DISCOVERY & RECONNAISSANCE
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "Discovery - Active Directory Enumeration Tools",
+        "description": (
+            "Known Active Directory reconnaissance tool detected — "
+            "BloodHound, ADFind, PowerView, or similar tools map AD attack paths for lateral movement."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "process.executable", "op": "contains", "value": "BloodHound"},
+                            {"field": "process.executable", "op": "contains", "value": "SharpHound"},
+                            {"field": "process.executable", "op": "contains", "value": "adfind"},
+                            {"field": "process.command_line", "op": "contains", "value": "BloodHound"},
+                            {"field": "process.command_line", "op": "contains", "value": "SharpHound"},
+                            {"field": "process.command_line", "op": "contains", "value": "Get-ADUser"},
+                            {"field": "process.command_line", "op": "contains", "value": "Get-ADComputer"},
+                            {"field": "process.command_line", "op": "contains", "value": "Get-ADGroup"},
+                            {"field": "process.command_line", "op": "contains", "value": "Invoke-ACLScanner"},
+                            {"field": "process.command_line", "op": "contains", "value": "Find-LocalAdminAccess"},
+                        ],
+                    },
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "raw.message", "op": "contains", "value": "BloodHound"},
+                            {"field": "raw.message", "op": "contains", "value": "SharpHound"},
+                            {"field": "raw.message", "op": "contains", "value": "adfind.exe"},
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Discovery"],
+        "mitre_techniques": ["T1069.002", "T1087.002"],
+        "suppression_window_secs": 600,
+    },
+    {
+        "name": "Discovery - Security Tool Enumeration",
+        "description": (
+            "Process querying installed antivirus or security software — "
+            "attackers enumerate defenses to identify blind spots before deploying payloads."
+        ),
+        "rule_type": "pattern",
+        "severity": "medium",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "wmic"},
+                                {"field": "process.command_line", "op": "contains", "value": "AntiVirusProduct"},
+                            ],
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "wmic"},
+                                {"field": "process.command_line", "op": "contains", "value": "FirewallProduct"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "AntiVirusProduct"},
+                                {"field": "raw.message", "op": "contains", "value": "wmic"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Discovery"],
+        "mitre_techniques": ["T1518.001"],
+        "suppression_window_secs": 600,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  EXFILTRATION
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "Exfiltration - Archive Tool Compressing User Data",
+        "description": (
+            "Archiving tool (7-zip, WinRAR, WinZip) compressing files from user directories — "
+            "staging personal or corporate data for exfiltration."
+        ),
+        "rule_type": "pattern",
+        "severity": "medium",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "process.executable", "op": "endswith", "value": "\\7z.exe"},
+                                        {"field": "process.executable", "op": "endswith", "value": "\\7za.exe"},
+                                        {"field": "process.executable", "op": "endswith", "value": "\\rar.exe"},
+                                        {"field": "process.executable", "op": "endswith", "value": "\\winzip32.exe"},
+                                        {"field": "process.executable", "op": "endswith", "value": "\\winrar.exe"},
+                                    ],
+                                },
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "process.command_line", "op": "contains", "value": "\\Users\\"},
+                                        {"field": "process.command_line", "op": "contains", "value": "\\Documents\\"},
+                                        {"field": "process.command_line", "op": "contains", "value": "\\Desktop\\"},
+                                        {"field": "process.command_line", "op": "contains", "value": "\\Downloads\\"},
+                                    ],
+                                },
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Exfiltration", "Collection"],
+        "mitre_techniques": ["T1560.001"],
+        "suppression_window_secs": 600,
+    },
+    {
+        "name": "Exfiltration - FTP Scripted Upload",
+        "description": (
+            "ftp.exe with -s or /s flag (script file) — automates upload of files via FTP, "
+            "used to quietly transfer stolen data without interactive prompts."
+        ),
+        "rule_type": "pattern",
+        "severity": "medium",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.executable", "op": "endswith", "value": "\\ftp.exe"},
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "process.command_line", "op": "contains", "value": "-s:"},
+                                        {"field": "process.command_line", "op": "contains", "value": "/s:"},
+                                    ],
+                                },
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "ftp.exe"},
+                                {"field": "raw.message", "op": "contains", "value": "-s:"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Exfiltration"],
+        "mitre_techniques": ["T1048.003"],
+        "suppression_window_secs": 300,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  PERSISTENCE
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "Persistence - Startup Folder File Drop",
+        "description": (
+            "A file was written to the Windows Startup folder — "
+            "will execute automatically on the next user login as a persistence mechanism."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "file.path", "op": "contains", "value": "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\"},
+                            {"field": "file.path", "op": "contains", "value": "\\ProgramData\\Microsoft\\Windows\\Start Menu\\Programs\\StartUp\\"},
+                        ],
+                    },
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "raw.message", "op": "contains", "value": "\\Programs\\Startup\\"},
+                            {"field": "raw.message", "op": "contains", "value": "\\Programs\\StartUp\\"},
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Persistence"],
+        "mitre_techniques": ["T1547.001"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Persistence - COM Object Hijacking via HKCU Registry",
+        "description": (
+            "COM server registered under HKCU\\Software\\Classes\\CLSID — "
+            "overrides system-wide COM registration without admin rights to achieve persistent execution."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.windows_event_id", "op": "eq", "value": "4657"},
+                                {"field": "raw.message", "op": "contains", "value": "HKCU"},
+                                {"field": "raw.message", "op": "contains", "value": "CLSID"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "raw.message", "op": "contains", "value": "HKCU\\Software\\Classes\\CLSID"},
+                                {"field": "raw.message", "op": "contains", "value": "InprocServer32"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Persistence", "Privilege Escalation"],
+        "mitre_techniques": ["T1546.015"],
+        "suppression_window_secs": 600,
+    },
+    {
+        "name": "Persistence - Suspicious Service DLL Registration (Event 7045)",
+        "description": (
+            "New service installed with a DLL path or from an unusual location — "
+            "malware registers services with .dll or script paths to survive reboots."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {"field": "raw.windows_event_id", "op": "eq", "value": "7045"},
+            {
+                "op": "any_of",
+                "conditions": [
+                    {"field": "raw.message", "op": "contains", "value": ".dll"},
+                    {"field": "raw.message", "op": "contains", "value": "\\Temp\\"},
+                    {"field": "raw.message", "op": "contains", "value": "\\AppData\\"},
+                    {"field": "raw.message", "op": "contains", "value": "\\Users\\Public\\"},
+                    {"field": "raw.message", "op": "contains", "value": "svchost.exe -k"},
+                ],
+            },
+        ],
+        "mitre_tactics": ["Persistence"],
+        "mitre_techniques": ["T1543.003"],
+        "suppression_window_secs": 300,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  LATERAL MOVEMENT
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "Lateral Movement - Pass-the-Ticket Kerberos Anomaly (Event 4769)",
+        "description": (
+            "Kerberos service ticket requested with encryption type 0x17 (RC4) — "
+            "modern environments use AES; RC4 tickets indicate Kerberoasting or Pass-the-Ticket attacks."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {"field": "raw.windows_event_id", "op": "eq", "value": "4769"},
+            {
+                "op": "any_of",
+                "conditions": [
+                    {"field": "raw.message", "op": "contains", "value": "0x17"},
+                    {"field": "raw.message", "op": "contains", "value": "0x18"},
+                    {"field": "raw.message", "op": "contains", "value": "RC4"},
+                ],
+            },
+        ],
+        "mitre_tactics": ["Credential Access", "Lateral Movement"],
+        "mitre_techniques": ["T1558.003", "T1550.003"],
+        "suppression_window_secs": 300,
+    },
+    {
+        "name": "Lateral Movement - Suspicious DCOM / MMC Execution",
+        "description": (
+            "mmc.exe or dcomcnfg used with unusual arguments or remote targets — "
+            "DCOM can be abused to execute code on remote systems without SMB."
+        ),
+        "rule_type": "pattern",
+        "severity": "medium",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {
+                                    "op": "any_of",
+                                    "conditions": [
+                                        {"field": "process.command_line", "op": "contains", "value": "mmc.exe"},
+                                        {"field": "process.command_line", "op": "contains", "value": "dcomcnfg"},
+                                    ],
+                                },
+                                {"field": "process.command_line", "op": "regex", "value": r"\\\\.+\\"},
+                            ],
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Lateral Movement", "Execution"],
+        "mitre_techniques": ["T1021.003"],
+        "suppression_window_secs": 600,
+    },
+
+    # ═══════════════════════════════════════════════════════════════════════
+    #  COMMAND AND CONTROL
+    # ═══════════════════════════════════════════════════════════════════════
+
+    {
+        "name": "C2 - Outbound Connection to Uncommon High Port",
+        "description": (
+            "Network connection established to a high ephemeral port (>49152) on an external host — "
+            "malware often listens on non-standard high ports to avoid detection."
+        ),
+        "rule_type": "pattern",
+        "severity": "medium",
+        "conditions": [
+            {"field": "category", "op": "eq", "value": "network"},
+            {"field": "network.dst_port", "op": "gt", "value": 49152},
+            {
+                "op": "none_of",
+                "conditions": [
+                    {"field": "network.dst_ip", "op": "startswith", "value": "10."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "192.168."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.16."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.17."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.18."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.19."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.20."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.21."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.22."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.23."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.24."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.25."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.26."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.27."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.28."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.29."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.30."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "172.31."},
+                    {"field": "network.dst_ip", "op": "startswith", "value": "127."},
+                ],
+            },
+        ],
+        "mitre_tactics": ["Command and Control"],
+        "mitre_techniques": ["T1571"],
+        "suppression_window_secs": 600,
+    },
+    {
+        "name": "C2 - PowerShell Direct TCP Socket Connection",
+        "description": (
+            "PowerShell using System.Net.Sockets.TCPClient or Net.Sockets — "
+            "pure-PowerShell C2 channels connect directly via raw sockets to bypass proxy settings."
+        ),
+        "rule_type": "pattern",
+        "severity": "high",
+        "conditions": [
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "process.command_line", "op": "contains", "value": "TCPClient"},
+                            {"field": "process.command_line", "op": "contains", "value": "Net.Sockets"},
+                            {"field": "process.command_line", "op": "contains", "value": "NetworkStream"},
+                            {"field": "process.command_line", "op": "contains", "value": "StreamReader"},
+                        ],
+                    },
+                    {
+                        "op": "any_of",
+                        "conditions": [
+                            {"field": "raw.message", "op": "contains", "value": "TCPClient"},
+                            {"field": "raw.message", "op": "contains", "value": "Net.Sockets"},
+                            {"field": "raw.message", "op": "contains", "value": "NetworkStream"},
+                        ],
+                    },
+                ],
+            },
+        ],
+        "mitre_tactics": ["Command and Control"],
+        "mitre_techniques": ["T1095"],
+        "suppression_window_secs": 300,
+    },
 ]
 
 # Validate count at import time to catch accidental additions/removals.
 _RULE_COUNT = len(_DEFAULT_RULES)
-assert _RULE_COUNT == 50, (  # noqa: S101
-    f"default_rules.py: expected 50 built-in rules, found {_RULE_COUNT}. "
+assert _RULE_COUNT == 79, (  # noqa: S101
+    f"default_rules.py: expected 79 built-in rules, found {_RULE_COUNT}. "
     "Update this assertion if the catalogue size changes intentionally."
 )
 

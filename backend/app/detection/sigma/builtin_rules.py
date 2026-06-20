@@ -75,7 +75,7 @@ detection:
       - ' -EncodedCommand '
       - ' -e '
   filter_len:
-    CommandLine|re: '.*-(e|enc|EncodedCommand)\s+[A-Za-z0-9+/]{10,}'
+    CommandLine|re: '.*-(e|enc|EncodedCommand)\\s+[A-Za-z0-9+/]{10,}'
   condition: selection
 level: high
 tags:
@@ -394,6 +394,246 @@ level: medium
 tags:
   - attack.command_and_control
   - attack.t1071.004
+""",
+
+    # ── Windows: AMSI Bypass ──────────────────────────────────────────────────
+
+    """
+title: AMSI Bypass Attempt via Reflection
+description: Detects PowerShell commands using .NET reflection to patch or disable AMSI — allows malicious scripts to run without antivirus scanning
+status: experimental
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\\powershell.exe'
+      - '\\pwsh.exe'
+    CommandLine|contains:
+      - 'amsiInitFailed'
+      - 'AmsiScanBuffer'
+      - 'amsiContext'
+      - 'AmsiUtils'
+      - '[Ref].Assembly'
+      - 'System.Management.Automation.AmsiUtils'
+  condition: selection
+level: high
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+""",
+
+    # ── Windows: BITS Abuse ───────────────────────────────────────────────────
+
+    """
+title: BITS Transfer Job Used for Payload Download
+description: BITSAdmin or PowerShell Start-BitsTransfer used to download a file — abuses Background Intelligent Transfer Service to blend download traffic
+status: experimental
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_bitsadmin:
+    Image|endswith: '\\bitsadmin.exe'
+    CommandLine|contains:
+      - '/transfer'
+      - '/addfile'
+      - '/create'
+  selection_powershell:
+    Image|endswith:
+      - '\\powershell.exe'
+      - '\\pwsh.exe'
+    CommandLine|contains:
+      - 'Start-BitsTransfer'
+      - 'BitsJob'
+  condition: 1 of selection*
+level: medium
+tags:
+  - attack.defense_evasion
+  - attack.command_and_control
+  - attack.t1197
+""",
+
+    # ── Windows: Suspicious Parent-Child Process ──────────────────────────────
+
+    """
+title: Office Application Spawning Script Interpreter
+description: Microsoft Office application spawning a script interpreter or command shell — primary indicator of macro-based malware execution
+status: experimental
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    ParentImage|contains:
+      - '\\WINWORD.EXE'
+      - '\\EXCEL.EXE'
+      - '\\POWERPNT.EXE'
+      - '\\OUTLOOK.EXE'
+      - '\\MSPUB.EXE'
+      - '\\VISIO.EXE'
+    Image|endswith:
+      - '\\cmd.exe'
+      - '\\powershell.exe'
+      - '\\wscript.exe'
+      - '\\cscript.exe'
+      - '\\mshta.exe'
+      - '\\rundll32.exe'
+      - '\\regsvr32.exe'
+  condition: selection
+level: high
+tags:
+  - attack.initial_access
+  - attack.execution
+  - attack.t1566.001
+  - attack.t1059
+""",
+
+    # ── Windows: Browser Spawning Shell ──────────────────────────────────────
+
+    """
+title: Browser Spawning Command Shell (Drive-By Download Indicator)
+description: Web browser spawning a command-line interpreter — strong indicator of drive-by download or browser exploit delivering a payload
+status: experimental
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    ParentImage|contains:
+      - '\\chrome.exe'
+      - '\\firefox.exe'
+      - '\\msedge.exe'
+      - '\\iexplore.exe'
+      - '\\opera.exe'
+      - '\\brave.exe'
+    Image|endswith:
+      - '\\cmd.exe'
+      - '\\powershell.exe'
+      - '\\wscript.exe'
+      - '\\cscript.exe'
+      - '\\mshta.exe'
+  condition: selection
+level: high
+tags:
+  - attack.initial_access
+  - attack.execution
+  - attack.t1189
+  - attack.t1059
+""",
+
+    # ── Windows: Cobalt Strike Indicators ────────────────────────────────────
+
+    """
+title: Cobalt Strike Beacon Named Pipe Pattern
+description: Process created a named pipe matching common Cobalt Strike beacon patterns — strong indicator of active C2 implant
+status: experimental
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    CommandLine|contains:
+      - 'postex_'
+      - 'msagent_'
+      - 'status_'
+      - 'mojo.5688'
+      - 'wkssvc_'
+      - 'ntsvcs'
+      - 'DserNamePipe'
+  condition: selection
+level: critical
+tags:
+  - attack.command_and_control
+  - attack.t1071
+  - attack.t1090
+""",
+
+    # ── Windows: Living-Off-the-Land Execution Chain ──────────────────────────
+
+    """
+title: Suspicious Script Execution via WScript or CScript from Temp
+description: WScript or CScript executing a script from a temporary directory — common malware delivery pattern to avoid detection by path-based rules
+status: experimental
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\\wscript.exe'
+      - '\\cscript.exe'
+    CommandLine|contains:
+      - '\\Temp\\'
+      - '\\AppData\\'
+      - '\\Users\\Public\\'
+      - '\\ProgramData\\'
+      - '\\Downloads\\'
+  condition: selection
+level: high
+tags:
+  - attack.execution
+  - attack.defense_evasion
+  - attack.t1059.005
+""",
+
+    # ── Linux: Privilege Escalation via SUID Binary ───────────────────────────
+
+    """
+title: SUID Binary Execution for Privilege Escalation
+description: Execution of known SUID binaries used for privilege escalation (GTFOBins) — attackers use these to obtain root shell from a low-privileged user
+status: experimental
+logsource:
+  category: process_creation
+  product: linux
+detection:
+  selection:
+    CommandLine|contains:
+      - 'python -c "import os; os.setuid(0)'
+      - 'perl -e "use POSIX"'
+      - 'find / -perm -u=s'
+      - 'find . -exec /bin/sh'
+      - 'nmap --interactive'
+      - 'vim -c ":!sh"'
+      - 'awk "BEGIN {system'
+  condition: selection
+level: high
+tags:
+  - attack.privilege_escalation
+  - attack.t1548.001
+""",
+
+    # ── Windows: Ransomware Staging ───────────────────────────────────────────
+
+    """
+title: Ransomware Staging - Mass Rename or Extension Change
+description: Process modifying or renaming large numbers of files with suspicious extensions appended — characteristic first stage of ransomware file encryption
+status: experimental
+logsource:
+  category: file_event
+  product: windows
+detection:
+  selection:
+    TargetFilename|endswith:
+      - '.encrypted'
+      - '.locked'
+      - '.crypto'
+      - '.enc'
+      - '.crypt'
+      - '.locky'
+      - '.cerber'
+      - '.zepto'
+      - '.odin'
+      - '.aesir'
+      - '.wnry'
+      - '.wncry'
+      - '.wncrypt'
+  condition: selection
+level: critical
+tags:
+  - attack.impact
+  - attack.t1486
 """,
 
 ]

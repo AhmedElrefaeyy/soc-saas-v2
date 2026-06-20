@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.detection.default_rules import seed_default_rules
+from app.detection.sigma import bulk_import_defaults
 from app.models.tenant import Tenant
 from app.models.tenant_member import TenantMember
 from app.models.user import User
@@ -51,6 +52,7 @@ class TenantService:
         await db.flush([member])
 
         await seed_default_rules(db, tenant.id)
+        await bulk_import_defaults(db, tenant.id)
 
         await AuditService.log(
             db,
