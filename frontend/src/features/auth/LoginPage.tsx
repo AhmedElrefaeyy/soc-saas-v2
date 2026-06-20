@@ -1,10 +1,11 @@
 import { useState, FormEvent } from "react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Eye, EyeOff, AlertCircle } from "lucide-react";
+import { Link, useNavigate, useLocation, useSearchParams } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { Eye, EyeOff, AlertCircle, MailCheck, RefreshCw, CheckCircle2 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useTenantStore } from "@/stores/tenantStore";
 import { authApi } from "@/api/auth";
+import { isApiError } from "@/api/client";
 import { fetchMyTenants } from "@/api/tenants";
 import { cn, extractApiError } from "@/lib/utils";
 import { LogoFull } from "@/components/ui/Logo";
@@ -13,6 +14,8 @@ import type { MemberRole } from "@/types/tenant";
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
+
   const setAuth        = useAuthStore((s) => s.setAuth);
   const setAuthTenant  = useAuthStore((s) => s.setActiveTenant);
   const setStoreTenant = useTenantStore((s) => s.setActiveTenant);
@@ -23,11 +26,21 @@ export function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Email-not-verified state
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSent,    setResendSent]    = useState(false);
+
   const from = (location.state as { from?: Location })?.from?.pathname ?? "/dashboard";
+
+  // Banner shown after RegisterPage redirects here post-registration
+  const justRegistered = searchParams.get("registered") === "1";
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
+    setUnverifiedEmail(null);
+    setResendSent(false);
     setIsLoading(true);
     try {
       const tokens = await authApi.login({ email, password });
@@ -37,7 +50,6 @@ export function LoginPage() {
         tokens.refresh_token,
       );
 
-      // Fetch and auto-select the first tenant so X-Tenant-ID is set immediately.
       try {
         const tenants = await fetchMyTenants();
         if (tenants.length > 0) {
@@ -47,17 +59,36 @@ export function LoginPage() {
           setAuthTenant(tenant.id);
           navigate(from, { replace: true });
         } else {
-          // New user — no workspaces yet, send to setup (preserve intended destination)
           navigate("/setup", { replace: true, state: { from: from } });
         }
       } catch {
-        // Non-fatal — navigate to destination; useTenantInit will handle it
         navigate(from, { replace: true });
       }
     } catch (err) {
-      setError(extractApiError(err));
+      if (
+        isApiError(err) &&
+        err.code === "FORBIDDEN" &&
+        (err.details as Record<string, unknown>)?.code === "EMAIL_NOT_VERIFIED"
+      ) {
+        setUnverifiedEmail(email);
+      } else {
+        setError(extractApiError(err));
+      }
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    if (!unverifiedEmail || resendLoading || resendSent) return;
+    setResendLoading(true);
+    try {
+      await authApi.resendVerification(unverifiedEmail);
+      setResendSent(true);
+    } catch {
+      // silently fail — backend rate-limits but doesn't surface errors
+    } finally {
+      setResendLoading(false);
     }
   }
 
@@ -66,7 +97,6 @@ export function LoginPage() {
       className="min-h-screen flex items-center justify-center p-4 bg-grid"
       style={{ background: "#000000" }}
     >
-      {/* Ambient glow blobs */}
       <div
         className="fixed top-0 left-1/4 w-[500px] h-[500px] rounded-full pointer-events-none"
         style={{
@@ -88,12 +118,10 @@ export function LoginPage() {
         transition={{ duration: 0.25, ease: "easeOut" }}
         className="relative w-full max-w-[400px]"
       >
-        {/* Logo */}
         <div className="flex justify-center mb-8">
           <LogoFull size={40} showSubtitle />
         </div>
 
-        {/* Card */}
         <div
           className="rounded-2xl p-7 border"
           style={{
@@ -108,20 +136,100 @@ export function LoginPage() {
             <p className="text-sm text-text-muted">Sign in to your NEURASHIELD console</p>
           </div>
 
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              className="flex items-start gap-2.5 p-3 mb-4 rounded-lg"
-              style={{
-                background: "rgba(248,113,113,0.08)",
-                border: "1px solid rgba(248,113,113,0.25)",
-              }}
-            >
-              <AlertCircle className="w-4 h-4 text-severity-critical mt-0.5 flex-shrink-0" />
-              <p className="text-sm text-severity-critical">{error}</p>
-            </motion.div>
-          )}
+          <AnimatePresence mode="wait">
+            {/* ── Just-registered banner ── */}
+            {justRegistered && !unverifiedEmail && !error && (
+              <motion.div
+                key="registered"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="flex items-start gap-2.5 p-3 mb-4 rounded-lg"
+                style={{
+                  background: "rgba(16,185,129,0.07)",
+                  border: "1px solid rgba(16,185,129,0.22)",
+                }}
+              >
+                <MailCheck className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#10B981" }} />
+                <p className="text-sm" style={{ color: "#6EE7B7", lineHeight: 1.5 }}>
+                  Account created! Check your inbox and verify your email before signing in.
+                </p>
+              </motion.div>
+            )}
+
+            {/* ── Generic error banner ── */}
+            {error && !unverifiedEmail && (
+              <motion.div
+                key="error"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="flex items-start gap-2.5 p-3 mb-4 rounded-lg"
+                style={{
+                  background: "rgba(248,113,113,0.08)",
+                  border: "1px solid rgba(248,113,113,0.25)",
+                }}
+              >
+                <AlertCircle className="w-4 h-4 text-severity-critical mt-0.5 flex-shrink-0" />
+                <p className="text-sm text-severity-critical">{error}</p>
+              </motion.div>
+            )}
+
+            {/* ── Email not verified banner ── */}
+            {unverifiedEmail && (
+              <motion.div
+                key="unverified"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mb-4 rounded-lg overflow-hidden"
+                style={{
+                  background: "rgba(245,158,11,0.07)",
+                  border: "1px solid rgba(245,158,11,0.28)",
+                }}
+              >
+                <div className="flex items-start gap-2.5 p-3">
+                  <MailCheck className="w-4 h-4 mt-0.5 flex-shrink-0" style={{ color: "#F59E0B" }} />
+                  <div style={{ flex: 1 }}>
+                    <p className="text-sm font-medium mb-0.5" style={{ color: "#FCD34D" }}>
+                      Email not verified
+                    </p>
+                    <p className="text-xs" style={{ color: "#A78A4F", lineHeight: 1.5 }}>
+                      A verification link was sent to{" "}
+                      <span style={{ color: "#FCD34D", fontWeight: 600 }}>{unverifiedEmail}</span>.
+                      Check your inbox and click the link to activate your account.
+                    </p>
+                  </div>
+                </div>
+
+                <div
+                  className="px-3 pb-3"
+                  style={{ borderTop: "1px solid rgba(245,158,11,0.15)", paddingTop: 8 }}
+                >
+                  {resendSent ? (
+                    <div className="flex items-center gap-2" style={{ color: "#10B981", fontSize: 12 }}>
+                      <CheckCircle2 size={13} />
+                      Verification email sent — check your inbox.
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleResend}
+                      disabled={resendLoading}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6,
+                        fontSize: 12, fontWeight: 600, color: "#F59E0B",
+                        background: "none", border: "none", cursor: resendLoading ? "default" : "pointer",
+                        padding: 0, opacity: resendLoading ? 0.6 : 1,
+                      }}
+                    >
+                      <RefreshCw size={12} style={{ animation: resendLoading ? "spin 1s linear infinite" : "none" }} />
+                      {resendLoading ? "Sending…" : "Resend verification email"}
+                    </button>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -133,7 +241,7 @@ export function LoginPage() {
                 type="email"
                 autoComplete="email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); setUnverifiedEmail(null); setError(null); setResendSent(false); }}
                 className="input-base"
                 placeholder="analyst@company.com"
                 required

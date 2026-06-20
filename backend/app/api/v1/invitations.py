@@ -284,6 +284,7 @@ async def accept_invitation(
             email=invitation.email,
             full_name=payload.full_name.strip(),
             password_hash=hash_password(payload.password),
+            email_verified=True,  # clicking the invite link proves email ownership
         )
         db.add(user)
         await db.flush()
