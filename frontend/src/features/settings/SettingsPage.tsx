@@ -1271,6 +1271,8 @@ function InviteModal({ onClose, onSent }: { onClose: () => void; onSent: (inv: I
 
 function MembersTab() {
   const activeTenantId = useAuthStore(s => s.activeTenantId)
+  const currentUserId  = useAuthStore(s => s.user?.id)
+  const memberRole     = useTenantStore(s => s.memberRole)
   const hasRole        = useTenantStore(s => s.hasRole)
   const canInvite      = hasRole('admin')
 
@@ -1279,6 +1281,25 @@ function MembersTab() {
   const [loading,      setLoading]      = useState(true)
   const [showInvite,   setShowInvite]   = useState(false)
   const [expandedPerm, setExpandedPerm] = useState<string | null>(null)
+  const [roleChanging, setRoleChanging] = useState<string | null>(null)
+
+  const ROLE_HIERARCHY_FRONTEND: Record<string, number> = {
+    viewer: 0, analyst: 1, admin: 2, owner: 3
+  }
+  const myLevel = ROLE_HIERARCHY_FRONTEND[memberRole ?? 'viewer'] ?? 0
+
+  const handleRoleChange = async (userId: string, newRole: string) => {
+    if (!activeTenantId) return
+    setRoleChanging(userId)
+    try {
+      await settingsApi.updateMemberRole(activeTenantId, userId, newRole)
+      setMembers(prev => prev.map(m => m.user_id === userId ? { ...m, role: newRole } : m))
+    } catch (err) {
+      alert(extractApiError(err))
+    } finally {
+      setRoleChanging(null)
+    }
+  }
 
   useEffect(() => {
     if (!activeTenantId) return
@@ -1418,9 +1439,36 @@ function MembersTab() {
                     </div>
                   </div>
 
-                  {/* Role */}
+                  {/* Role — dropdown if actor can manage this member's role */}
                   <div style={{ marginRight: 16 }}>
-                    {getRoleBadge(m.role)}
+                    {canInvite && m.user_id !== currentUserId && (ROLE_HIERARCHY_FRONTEND[m.role] ?? 0) < myLevel ? (
+                      <select
+                        value={m.role}
+                        disabled={roleChanging === m.user_id}
+                        onChange={e => handleRoleChange(m.user_id, e.target.value)}
+                        style={{
+                          fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                          padding: '2px 20px 2px 7px', borderRadius: 4,
+                          fontFamily: "'JetBrains Mono', monospace",
+                          background: ROLE_COLORS[m.role]?.bg ?? 'rgba(255,255,255,0.06)',
+                          color: ROLE_COLORS[m.role]?.color ?? '#B8C0CC',
+                          border: `1px solid ${ROLE_COLORS[m.role]?.color ?? '#5C6373'}30`,
+                          cursor: 'pointer', appearance: 'none',
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%235C6373' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E")`,
+                          backgroundRepeat: 'no-repeat',
+                          backgroundPosition: 'right 4px center',
+                        }}
+                      >
+                        {(['viewer', 'analyst', 'admin'] as const)
+                          .filter(r => (ROLE_HIERARCHY_FRONTEND[r] ?? 0) < myLevel)
+                          .map(r => (
+                            <option key={r} value={r}>{r}</option>
+                          ))
+                        }
+                      </select>
+                    ) : (
+                      getRoleBadge(m.role)
+                    )}
                   </div>
 
                   {/* Custom perms indicator */}

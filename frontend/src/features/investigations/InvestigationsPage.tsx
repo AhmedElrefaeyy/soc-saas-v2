@@ -139,13 +139,17 @@ function InvRow({ inv, onClick }: { inv: InvestigationListItem; onClick: () => v
       </td>
       <td style={{ padding: "9px 12px" }}>
         {inv.assigned_to ? (
-          <div style={{
-            width: 24, height: 24, borderRadius: "50%",
-            background: "linear-gradient(135deg, #2563EB, #38BDF8)",
-            display: "inline-flex", alignItems: "center", justifyContent: "center",
-            fontSize: 9, fontWeight: 700, color: "#fff",
-          }}>
-            {inv.assigned_to.slice(0, 2).toUpperCase()}
+          <div
+            title={inv.assigned_to_name ?? inv.assigned_to}
+            style={{
+              width: 24, height: 24, borderRadius: "50%",
+              background: "linear-gradient(135deg, #2563EB, #38BDF8)",
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              fontSize: 9, fontWeight: 700, color: "#fff",
+            }}>
+            {inv.assigned_to_name
+              ? inv.assigned_to_name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
+              : inv.assigned_to.slice(0, 2).toUpperCase()}
           </div>
         ) : (
           <span style={{ color: "#3A4150", fontSize: 12 }}>—</span>
@@ -208,11 +212,15 @@ function EmptyState({ onNew }: { onNew: () => void }) {
 // ─── Filter tabs ──────────────────────────────────────────────────────────────
 
 const STATUS_FILTERS: Array<{ label: string; value: string | undefined }> = [
-  { label: "All",           value: undefined       },
-  { label: "New",           value: "new"           },
+  { label: "All",           value: undefined        },
+  { label: "New",           value: "new"            },
+  { label: "Active",        value: "active"         },
+  { label: "Triaged",       value: "triaged"        },
   { label: "Investigating", value: "investigating"  },
-  { label: "Contained",     value: "contained"     },
-  { label: "Closed",        value: "closed"        },
+  { label: "Contained",     value: "contained"      },
+  { label: "Resolved",      value: "resolved"       },
+  { label: "Closed",        value: "closed"         },
+  { label: "False Positive",value: "false_positive" },
 ]
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

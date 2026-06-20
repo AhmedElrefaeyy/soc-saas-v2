@@ -126,6 +126,7 @@ export interface NoteOut {
   investigation_id: string
   tenant_id: string
   analyst_id: string
+  analyst_name: string | null
   content: string
   pinned: boolean
   created_at: string
@@ -230,6 +231,16 @@ export function useRunAIAnalysis(id: string) {
   return useMutation({
     mutationFn: () =>
       apiClient.post<{ data: InvestigationDetail }>(`/investigations/${id}/analyze`),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ['inv-detail', id] }),
+  })
+}
+
+export function useInvSetVerdict(id: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (verdict: string) =>
+      apiClient.patch(`/investigations/${id}/verdict`, { verdict }),
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['inv-detail', id] }),
   })

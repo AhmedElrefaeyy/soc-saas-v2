@@ -16,7 +16,7 @@ import { playbooksApi } from '@/api/playbooks'
 import {
   useInvDetail, useInvTimeline, useInvGraph,
   useInvEvidence, useInvNotes,
-  useInvUpdateStatus, useInvCreateNote, useRunAIAnalysis,
+  useInvUpdateStatus, useInvCreateNote, useRunAIAnalysis, useInvSetVerdict,
   type InvestigationDetail, type AIAnalysis,
   type TimelineEntryOut,
   type GraphNodeOut, type GraphEdgeOut,
@@ -40,12 +40,85 @@ function sevColor(severity: number): string {
   return '#3B82F6'
 }
 
+function processBasename(path: string): string {
+  // Handle both Windows (C:\path\to\cmd.exe) and POSIX (/usr/bin/bash)
+  return path.split(/[\\/]/).pop() ?? path
+}
+
 function timelineLabel(entry: TimelineEntryOut): string {
   const parts: string[] = []
-  if (entry.process) parts.push(entry.process)
+  if (entry.process) parts.push(processBasename(entry.process))
   parts.push(entry.action)
   if (entry.outcome && entry.outcome !== 'success') parts.push(`(${entry.outcome})`)
   return parts.join(' — ')
+}
+
+// ─── VerdictDropdown ──────────────────────────────────────────────────────────
+
+const VERDICT_OPTIONS = [
+  { value: 'true_positive',   label: 'True Positive',  color: '#EF4444' },
+  { value: 'false_positive',  label: 'False Positive', color: '#10B981' },
+  { value: 'benign_positive', label: 'Benign',         color: '#60A5FA' },
+  { value: 'suspicious',      label: 'Suspicious',     color: '#F59E0B' },
+  { value: 'inconclusive',    label: 'Inconclusive',   color: '#6B7280' },
+]
+
+function VerdictDropdown({ current, onSet }: {
+  current: string | null
+  onSet: (v: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const opt = VERDICT_OPTIONS.find(o => o.value === current)
+  const label = opt?.label ?? 'Set Verdict'
+  const color = opt?.color ?? '#5C6373'
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600,
+          cursor: 'pointer', fontFamily: "'JetBrains Mono', monospace",
+          background: opt ? `${color}18` : 'rgba(255,255,255,0.04)',
+          border: `1px solid ${opt ? `${color}40` : 'rgba(255,255,255,0.08)'}`,
+          color: opt ? color : '#5C6373',
+        }}
+      >
+        {opt && <span style={{ width: 6, height: 6, borderRadius: '50%', background: color }} />}
+        {label}
+        <ChevronDown size={11} />
+      </button>
+
+      {open && (
+        <>
+          <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 19 }} />
+          <div style={{
+            position: 'absolute', top: '100%', left: 0, marginTop: 4,
+            background: '#111111', border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 7, overflow: 'hidden', zIndex: 20, minWidth: 160,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
+          }}>
+            {VERDICT_OPTIONS.map(o => (
+              <button
+                key={o.value}
+                onClick={() => { onSet(o.value); setOpen(false) }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  width: '100%', padding: '8px 12px', fontSize: 12, cursor: 'pointer',
+                  background: current === o.value ? 'rgba(255,255,255,0.05)' : 'transparent',
+                  border: 'none', color: o.color, transition: 'background 120ms', textAlign: 'left',
+                }}
+              >
+                <span style={{ width: 6, height: 6, borderRadius: '50%', background: o.color, flexShrink: 0 }} />
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }
 
 // ─── StatusDropdown ───────────────────────────────────────────────────────────
@@ -495,10 +568,12 @@ function NotesTab({ id }: { id: string }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0,
             }}>
-              {note.analyst_id?.[0]?.toUpperCase() ?? 'A'}
+              {note.analyst_name
+                ? note.analyst_name.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)
+                : (note.analyst_id?.[0]?.toUpperCase() ?? 'A')}
             </div>
             <span style={{ fontSize: 11, color: '#8B95A7' }}>
-              {note.analyst_id?.slice(0, 8)}
+              {note.analyst_name ?? note.analyst_id?.slice(0, 8)}
             </span>
             {note.pinned && (
               <span style={{
@@ -915,6 +990,7 @@ export function InvestigationDetailPage() {
 
   const { data: inv, isLoading } = useInvDetail(id ?? '')
   const updateStatus = useInvUpdateStatus(id ?? '')
+  const setVerdict   = useInvSetVerdict(id ?? '')
   const currentUser = useAuthStore((s) => s.user)
   const [assigning, setAssigning] = useState(false)
   const [assignedLabel, setAssignedLabel] = useState(false)
@@ -1068,6 +1144,10 @@ export function InvestigationDetailPage() {
                 <BookOpen size={12} /> + Playbook
               </Button>
             )}
+            <VerdictDropdown
+              current={inv.verdict}
+              onSet={verdict => setVerdict.mutate(verdict)}
+            />
             <StatusDropdown
               current={inv.status}
               onChange={status => updateStatus.mutate(status)}
@@ -1119,7 +1199,7 @@ export function InvestigationDetailPage() {
         {activeTab === 'overview'    && <OverviewTab    inv={inv} />}
         {activeTab === 'ai_analysis' && <AIAnalysisTab  inv={inv} id={id!} />}
         {activeTab === 'timeline'    && <TimelineTab    id={id!} />}
-        {activeTab === 'graph'       && <GraphTab       id={id!} />}
+        {activeTab === 'graph'       && <GraphTab       id={inv.investigation_group_id} />}
         {activeTab === 'evidence'    && <EvidenceTab    id={id!} />}
         {activeTab === 'notes'       && <NotesTab       id={id!} />}
       </div>

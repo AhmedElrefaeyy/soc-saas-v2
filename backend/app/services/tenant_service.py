@@ -14,7 +14,7 @@ from app.detection.sigma import bulk_import_defaults
 from app.models.tenant import Tenant
 from app.models.tenant_member import TenantMember
 from app.models.user import User
-from app.rbac.roles import Role
+from app.rbac.roles import Role, ROLE_HIERARCHY
 from app.services.audit_service import AuditService
 
 logger = structlog.get_logger(__name__)
@@ -272,10 +272,18 @@ class TenantService:
         new_role: Role,
         actor: TenantMember,
     ) -> TenantMember:
-        """Changes a member's role. Cannot demote the last owner."""
+        """Changes a member's role. Cannot demote the last owner. Actor cannot promote above own level."""
         target = await TenantService.get_active_member(db, tenant_id, target_user_id)
         if target is None:
             raise NotFoundError("Member not found")
+
+        # Prevent privilege escalation — cannot assign a role >= actor's own role
+        actor_level  = ROLE_HIERARCHY.get(Role(actor.role), -1)
+        target_level = ROLE_HIERARCHY.get(new_role, -1)
+        if target_level >= actor_level:
+            raise ForbiddenError(
+                "You cannot assign a role equal to or higher than your own"
+            )
 
         if target.role == Role.OWNER.value and new_role != Role.OWNER:
             owner_count_result = await db.execute(
