@@ -50,12 +50,12 @@ export function Modal({
 
             <Dialog.Content asChild>
               <motion.div
-                initial={{ opacity: 0, scale: 0.96, y: 8 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                initial={{ opacity: 0, scale: 0.96, x: "-50%", y: "-50%" }}
+                animate={{ opacity: 1, scale: 1,   x: "-50%", y: "-50%" }}
+                exit={{ opacity: 0, scale: 0.96,   x: "-50%", y: "-50%" }}
                 transition={{ duration: 0.15, ease: "easeOut" }}
                 className={cn(
-                  "fixed left-1/2 top-1/2 z-50 -translate-x-1/2 -translate-y-1/2",
+                  "fixed left-1/2 top-1/2 z-50",
                   "w-full bg-bg-surface border border-border rounded-xl shadow-panel",
                   "flex flex-col max-h-[90vh] overflow-hidden",
                   SIZE_CLASSES[size],
