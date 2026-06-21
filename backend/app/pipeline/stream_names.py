@@ -40,8 +40,14 @@ SUBSYSTEM = "pipeline"
 ALERTS_PUBSUB_CHANNEL = "ws:alerts"
 EVENTS_PUBSUB_CHANNEL = "ws:events"
 
-# ─── Stream trim cap (approximate) ───────────────────────────────────────────
+# ─── Stream trim caps (approximate MAXLEN passed to XADD) ────────────────────
+# Sized to keep total Redis memory under ~50 MB across all streams per tenant.
+# raw + normalized events are trimmed most aggressively — they are transient
+# buffers; once consumed they are no longer needed in the stream.
 
-RAW_STREAM_MAX_LEN = 100_000
-NORMALIZED_STREAM_MAX_LEN = 100_000
-ALERT_STREAM_MAX_LEN = 50_000
+RAW_STREAM_MAX_LEN        = 10_000   # ~5 MB per tenant at ~500 B/msg
+NORMALIZED_STREAM_MAX_LEN = 10_000   # ~8 MB per tenant at ~800 B/msg
+ALERT_STREAM_MAX_LEN      =  5_000   # alerts are small; 5k is plenty
+CORRELATED_STREAM_MAX_LEN =  2_000   # correlation results are larger JSON
+INVESTIGATION_STREAM_MAX_LEN = 500   # investigation payloads are large (~5–50 KB each)
+REALTIME_STREAM_MAX_LEN   =  5_000   # ws notifications are tiny (~200 B)

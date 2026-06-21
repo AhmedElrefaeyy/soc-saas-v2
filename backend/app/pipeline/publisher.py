@@ -48,6 +48,7 @@ class StreamPublisher:
         stream_id = await self._client.xadd(
             stream_names.CORRELATED_EVENTS,
             {"data": orjson.dumps(payload).decode()},
+            maxlen=stream_names.CORRELATED_STREAM_MAX_LEN,
         )
         return stream_id
 
@@ -56,6 +57,7 @@ class StreamPublisher:
         stream_id = await self._client.xadd(
             stream_names.INVESTIGATION_RESULTS,
             {"data": orjson.dumps(payload, default=str).decode()},
+            maxlen=stream_names.INVESTIGATION_STREAM_MAX_LEN,
         )
         logger.info(
             "investigation_result_published",
@@ -86,6 +88,7 @@ class StreamPublisher:
         stream_id = await self._client.xadd(
             ch.REALTIME_EVENTS_STREAM,
             {"data": orjson.dumps(payload, default=str).decode()},
+            maxlen=stream_names.REALTIME_STREAM_MAX_LEN,
         )
         return stream_id
 

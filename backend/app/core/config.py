@@ -39,7 +39,9 @@ class Settings(BaseSettings):
 
     # ─── Redis ────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
-    REDIS_MAX_CONNECTIONS: int = 20
+    # 8 per service × 2 services (API + Worker) = 16 total — stays within
+    # Railway managed-Redis connection limits (typically 20 on hobby plan).
+    REDIS_MAX_CONNECTIONS: int = 8
 
     # ─── JWT ──────────────────────────────────────────────────────────────────
     JWT_SECRET: str
