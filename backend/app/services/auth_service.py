@@ -76,24 +76,25 @@ class AuthService:
             ip_address=ip_address,
         )
 
-        # Send verification email in background — never block registration response.
-        # The task wrapper logs success/failure so failures are visible in structlog.
-        import asyncio
+        # Send verification email synchronously before returning — must be awaited here
+        # because the SQLAlchemy session commits and closes after this method returns,
+        # which would expire ORM attributes, making them inaccessible from a background task.
         from app.services.email_service import send_verification_email
 
         verify_url = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
+        # Use local string variables (not ORM attributes) so there's no session dependency.
+        _email     = email.lower().strip()
+        _full_name = full_name.strip()
+        _user_id   = str(user.id)
 
-        async def _send_registration_email() -> None:
-            try:
-                sent = await send_verification_email(user.email, user.full_name, verify_url)
-                if not sent:
-                    logger.warning("verification_email_not_sent", user_id=str(user.id))
-                else:
-                    logger.info("verification_email_sent", user_id=str(user.id))
-            except Exception as exc:
-                logger.warning("verification_email_error", user_id=str(user.id), error=str(exc))
-
-        asyncio.create_task(_send_registration_email())
+        try:
+            sent = await send_verification_email(_email, _full_name, verify_url)
+            if not sent:
+                logger.warning("verification_email_not_sent", user_id=_user_id)
+            else:
+                logger.info("verification_email_sent", user_id=_user_id)
+        except Exception as exc:
+            logger.warning("verification_email_error", user_id=_user_id, error=str(exc))
 
         return user, token_pair
 
