@@ -130,6 +130,21 @@ apiClient.interceptors.response.use(
       }
     }
 
+    // Convert any backend structured error envelope {error:{code,message,details}}
+    // into an ApiError so callers can use isApiError() reliably, regardless of
+    // HTTP status code. Must come AFTER the 401 refresh block.
+    const responseData = error.response?.data as Record<string, unknown> | null | undefined;
+    const backendError = responseData?.["error"] as Record<string, unknown> | null | undefined;
+    if (backendError && typeof backendError["code"] === "string") {
+      return Promise.reject(
+        new ApiError(
+          backendError["code"],
+          String(backendError["message"] ?? "An error occurred"),
+          backendError["details"],
+        ),
+      );
+    }
+
     return Promise.reject(error);
   },
 );
