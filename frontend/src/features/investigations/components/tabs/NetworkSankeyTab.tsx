@@ -71,24 +71,16 @@ function buildSankey(flows: NetworkFlow[], svgW: number, svgH: number): { nodes:
   const sourceOnly = sourceIds.filter((s) => !targetIds.includes(s));
   const both       = sourceIds.filter((s) => targetIds.includes(s));
 
-  // Column assignment: left = sourceOnly, right = sinkOnly, middle = both
-  // For simplicity collapse to 2 columns: left = sources, right = targets
-  const allNodeIds = [...new Set([...sourceIds, ...targetIds])];
-
   const nodeBytes = new Map<string, number>();
   for (const f of flows) {
     nodeBytes.set(f.source, (nodeBytes.get(f.source) ?? 0) + f.bytes);
     nodeBytes.set(f.target, (nodeBytes.get(f.target) ?? 0) + f.bytes);
   }
 
-  const totalBytes = Math.max(1, flows.reduce((s, f) => s + f.bytes, 0));
   const usableH = svgH - PAD * 2;
   const minNodeH = 20;
 
-  // Layout left column (sources)
   const leftIds = sourceOnly.concat(both);
-  const rightIds = sinkOnly.concat(both.filter((b) => targetIds.includes(b) && sourceIds.includes(b)));
-  // Deduplicate: nodes that appear on both sides go right
   const leftFinal = leftIds.filter((id) => !sinkOnly.includes(id) || sourceOnly.includes(id));
   const rightFinal = [...new Set([...sinkOnly, ...both])];
 

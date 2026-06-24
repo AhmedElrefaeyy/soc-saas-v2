@@ -22,26 +22,6 @@ import { HuntTimeSeriesOverlay } from "./components/HuntTimeSeriesOverlay";
 import { HuntExportButton } from "./components/HuntExportButton";
 import type { HuntTemplate } from "@/data/huntTemplates";
 
-// ─── CSV export ───────────────────────────────────────────────────────────────
-
-function escapeCsv(v: unknown): string {
-  const s = String(v ?? "");
-  return s.includes(",") || s.includes('"') || s.includes("\n")
-    ? `"${s.replace(/"/g, '""')}"`
-    : s;
-}
-
-function downloadCsv(rows: Record<string, unknown>[], filename: string) {
-  if (!rows.length) return;
-  const headers = Object.keys(rows[0]);
-  const lines   = [headers.join(","), ...rows.map((r) => headers.map((h) => escapeCsv(r[h])).join(","))];
-  const blob    = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-  const url     = URL.createObjectURL(blob);
-  const a       = document.createElement("a");
-  a.href = url; a.download = filename; a.click();
-  URL.revokeObjectURL(url);
-}
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type HuntMode  = "investigation" | "event";
@@ -592,25 +572,6 @@ export function HuntPage() {
 
   // Ctrl+Enter shortcut — fires the hunt
   useKeyboard("Enter", (e) => { e.preventDefault(); handleRun(); }, { ctrl: true });
-
-  const handleExportCsv = () => {
-    if (mode === "event" && evt.results.length > 0) {
-      const rows = evt.results.map((r) => ({
-        timestamp: r.timestamp, host: r.host_name ?? "", user: r.username ?? "",
-        process: r.process_name ?? "", source_ip: r.source_ip ?? "",
-        category: r.category, severity: r.severity,
-        flags: r.ueba_flags?.join(";") ?? "",
-      }));
-      downloadCsv(rows, `hunt-events-${Date.now()}.csv`);
-    } else if (mode === "investigation" && inv.results.length > 0) {
-      const rows = inv.results.map((r) => ({
-        id: r.investigation_id, score: r.threat_score, status: r.status,
-        confidence: r.confidence, summary: r.executive_summary,
-        reasons: r.match_reasons.join(";"), created: r.created_at,
-      }));
-      downloadCsv(rows, `hunt-investigations-${Date.now()}.csv`);
-    }
-  };
 
   const exportRows: Record<string, unknown>[] = mode === "event"
     ? evt.results.map((r) => ({ timestamp: r.timestamp, host: r.host_name ?? "", user: r.username ?? "", process: r.process_name ?? "", source_ip: r.source_ip ?? "", category: r.category, severity: r.severity }))
