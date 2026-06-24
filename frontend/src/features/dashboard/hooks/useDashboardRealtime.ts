@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useWSManager } from "@/websocket/WSProvider";
+import { useTenantStore } from "@/stores/tenantStore";
 import type { LiveAlert } from "@/features/dashboard/types/dashboard";
 import type { DashboardTimeRange } from "@/features/dashboard/types/dashboard";
 import { dashboardKeys } from "./useDashboardData";
@@ -18,8 +19,11 @@ export function useDashboardRealtime(timeRange: DashboardTimeRange) {
 
   const injectAlert = useCallback(
     (alert: LiveAlert) => {
+      // Read tenant at event time to avoid stale closure on workspace switch
+      const tenantId = useTenantStore.getState().activeTenant?.id ?? ""
+
       qc.setQueryData<LiveAlert[]>(
-        dashboardKeys.alertsFeed(timeRangeRef.current),
+        dashboardKeys.alertsFeed(tenantId, timeRangeRef.current),
         (prev) => {
           if (!prev) return [alert];
           // Prepend + cap at 200 to avoid unbounded growth
@@ -30,7 +34,7 @@ export function useDashboardRealtime(timeRange: DashboardTimeRange) {
 
       // Increment KPI alert counts
       qc.setQueryData(
-        dashboardKeys.summary(timeRangeRef.current),
+        dashboardKeys.summary(tenantId, timeRangeRef.current),
         (prev: Parameters<typeof qc.setQueryData>[1]) => {
           if (!prev || typeof prev !== "object") return prev;
           const summary = prev as { alerts: { total: number; critical: number; open: number; delta24h: number; criticalDelta24h: number; high: number } };
@@ -58,12 +62,13 @@ export function useDashboardRealtime(timeRange: DashboardTimeRange) {
 
     // Investigation correlations — invalidate summary to pick up new counts
     const offInv = ws.on("investigation.created", () => {
+      const tenantId = useTenantStore.getState().activeTenant?.id ?? ""
       void qc.invalidateQueries({
-        queryKey: dashboardKeys.summary(timeRangeRef.current),
+        queryKey: dashboardKeys.summary(tenantId, timeRangeRef.current),
         exact: true,
       });
       void qc.invalidateQueries({
-        queryKey: dashboardKeys.correlation(timeRangeRef.current),
+        queryKey: dashboardKeys.correlation(tenantId, timeRangeRef.current),
         exact: true,
       });
     });

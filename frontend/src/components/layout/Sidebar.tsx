@@ -16,6 +16,16 @@ import {
   Download,
   Upload,
   Network,
+  BarChart3,
+  Server,
+  UserSearch,
+  ScrollText,
+  EyeOff,
+  Globe,
+  Swords,
+  Building2,
+  Wifi,
+  FileCheck,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useTenantStore } from "@/stores/tenantStore";
@@ -23,6 +33,7 @@ import { LogoCompact } from "@/components/ui/Logo";
 import { getAlerts } from "@/services/alertsApi";
 import { agentsApi } from "@/api/agents";
 import { useQuery } from "@tanstack/react-query";
+import { useMyAlertCount } from "@/hooks/useMyAlertCount";
 
 // ─── Live badge counts ────────────────────────────────────────────────────────
 
@@ -42,7 +53,7 @@ function useOnlineAgentCount() {
     queryKey: ["sidebar", "agents-online"],
     queryFn: async () => {
       const resp = await agentsApi.list({ status: "online", limit: 1 });
-      return resp.data.pagination.total;
+      return resp.pagination.total;
     },
     staleTime: 30_000,
     refetchInterval: 30_000,
@@ -129,8 +140,9 @@ export function Sidebar() {
   const memberRole = useTenantStore((s) => s.memberRole);
   const hasRole    = useTenantStore((s) => s.hasRole);
   const navigate   = useNavigate();
-  const alertCount = useOpenAlertCount();
+  const alertCount       = useOpenAlertCount();
   const onlineAgentCount = useOnlineAgentCount();
+  const { data: myAlertCount = 0 } = useMyAlertCount();
 
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -172,6 +184,16 @@ export function Sidebar() {
         <div className="sec-label">Operations</div>
         <NavItem to="/dashboard" icon={LayoutDashboard} label="Overview" />
         <NavItem to="/alerts"    icon={Bell}            label="Alerts" badge={alertCount} badgeColor="red" />
+        {myAlertCount > 0 && (
+          <NavLink
+            to="/alerts?assignedTo=me"
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "3px 14px 5px 36px", textDecoration: "none" }}
+          >
+            <span style={{ fontSize: 10, color: "#5C6373" }}>
+              {myAlertCount} assigned to me
+            </span>
+          </NavLink>
+        )}
         {hasRole('analyst') && (
           <NavItem to="/investigations" icon={FolderSearch} label="Investigations" />
         )}
@@ -196,14 +218,46 @@ export function Sidebar() {
 
         <div className="sec-label">Reporting</div>
         {hasRole('analyst') && (
-          <NavItem to="/reports"   icon={FileBarChart}  label="Reports" />
+          <NavItem to="/reports"             icon={FileBarChart}  label="Reports" />
+        )}
+        {hasRole('analyst') && (
+          <NavItem to="/compliance-reports"  icon={FileCheck}     label="Compliance" />
+        )}
+        {hasRole('analyst') && (
+          <NavItem to="/soc-metrics"         icon={BarChart3}     label="SOC Metrics" />
+        )}
+        {hasRole('analyst') && (
+          <NavItem to="/mitre"               icon={Swords}        label="MITRE ATT&CK" />
+        )}
+
+        <div className="sec-label">Intelligence</div>
+        {hasRole('analyst') && (
+          <NavItem to="/threat-intel"        icon={Globe}         label="Threat Intel" />
+        )}
+        {hasRole('analyst') && (
+          <NavItem to="/ueba"                icon={UserSearch}    label="UEBA" />
+        )}
+        {hasRole('analyst') && (
+          <NavItem to="/assets"              icon={Server}        label="Assets" />
+        )}
+        {hasRole('analyst') && (
+          <NavItem to="/rules/suppression"   icon={EyeOff}        label="Suppressions" />
         )}
 
         <div className="sec-label">Platform</div>
         <NavItem to="/agents"    icon={Monitor}   label="Agents" badge={onlineAgentCount || undefined} badgeColor="green" />
         <NavItem to="/installer" icon={Download}  label="Device Enrollment" />
         {hasRole('admin') && (
+          <NavItem to="/fleet"   icon={Wifi}      label="Fleet" />
+        )}
+        {hasRole('admin') && (
           <NavItem to="/import"  icon={Upload}    label="Log Import" />
+        )}
+        {hasRole('admin') && (
+          <NavItem to="/audit-log" icon={ScrollText} label="Audit Log" />
+        )}
+        {hasRole('admin') && (
+          <NavItem to="/mssp"    icon={Building2} label="MSSP Portal" />
         )}
         <NavItem to="/settings"  icon={Settings}  label="Settings" />
       </nav>

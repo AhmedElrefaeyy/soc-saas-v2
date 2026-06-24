@@ -14,8 +14,9 @@ Endpoints:
 """
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta, timezone
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -24,10 +25,60 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.dependencies import require_permission
+from app.core.redis import get_redis_optional
 from app.rbac.permissions import Permission
 from app.schemas.common import APIResponse
 
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+# ─── KPI cache helpers (30-second TTL) ───────────────────────────────────────
+# Keys are stored under tenant:{tid}:dashboard: to match the TenantRedisClient
+# namespace convention, providing consistent tenant isolation across all Redis usage.
+
+_KPI_TTL = 30
+_KPI_SUBSYSTEM = "dashboard"
+
+
+def _kpi_key(tenant_id: str, slug: str, time_range: str) -> str:
+    tr_hash = hashlib.md5(time_range.encode()).hexdigest()[:8]
+    return f"tenant:{tenant_id}:{_KPI_SUBSYSTEM}:kpi:{slug}:{tr_hash}"
+
+
+async def _kpi_get(redis: "Redis[str] | None", key: str) -> str | None:
+    if redis is None:
+        return None
+    try:
+        return await redis.get(key)
+    except Exception:
+        return None
+
+
+async def _kpi_set(redis: "Redis[str] | None", key: str, value: str) -> None:
+    if redis is None:
+        return
+    try:
+        await redis.set(key, value, ex=_KPI_TTL)
+    except Exception:
+        pass
+
+
+async def _invalidate_dashboard_cache(tenant_id: str) -> None:
+    """Delete all cached dashboard KPIs for a tenant. Called on alert/event write."""
+    try:
+        from app.core.redis import redis_manager
+        redis = redis_manager.get_client()
+        # Pattern matches all dashboard KPI keys under the tenant namespace.
+        pattern = f"tenant:{tenant_id}:{_KPI_SUBSYSTEM}:*"
+        keys_to_delete: list[str] = []
+        async for key in redis.scan_iter(match=pattern, count=100):
+            keys_to_delete.append(key)
+        if keys_to_delete:
+            await redis.delete(*keys_to_delete)
+    except Exception:
+        pass
 
 # ─── Time-range helpers ───────────────────────────────────────────────────────
 
@@ -224,11 +275,16 @@ def _pct_delta(current: int, prev: int) -> float:
 async def get_dashboard_summary(
     member: Annotated[object, require_permission(Permission.EVENTS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated["Redis[str] | None", Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[DashboardSummary]:
     from app.models.tenant_member import TenantMember
     m: TenantMember = member  # type: ignore[assignment]
     tid = str(m.tenant_id)
+
+    cache_key = _kpi_key(tid, "summary", time_range)
+    if (cached := await _kpi_get(redis, cache_key)) is not None:
+        return APIResponse[DashboardSummary].model_validate_json(cached)
 
     period_start, now, _ = _window(time_range)
     prev_start = period_start - (now - period_start)  # equal-length previous period
@@ -283,6 +339,8 @@ async def get_dashboard_summary(
     )
 
     # ── Events / ingestion ────────────────────────────────────────────────────
+    # Compute total + previous-period total, plus the peak EPS across
+    # fixed 5-minute buckets within the current period.
     ev_row = (await db.execute(text("""
         SELECT
             COUNT(*) FILTER (WHERE event_timestamp >= :ps)                AS total,
@@ -291,15 +349,32 @@ async def get_dashboard_summary(
         WHERE tenant_id = CAST(:tid AS uuid)
     """), {"tid": tid, "ps": period_start, "prev_ps": prev_start})).fetchone()
 
+    # Peak EPS: max events in any single 5-minute bucket within the period.
+    # Using a 300-second bucket gives a stable, comparable peak regardless of
+    # the time_range chosen (unlike the ingestion-rate endpoint whose bucket
+    # size varies per range).
+    _PEAK_BUCKET_SECS = 300
+    peak_row = (await db.execute(text("""
+        SELECT COALESCE(MAX(bucket_count), 0) AS peak_count
+        FROM (
+            SELECT COUNT(*) AS bucket_count
+            FROM events
+            WHERE tenant_id = CAST(:tid AS uuid)
+              AND event_timestamp >= :ps
+            GROUP BY (EXTRACT(EPOCH FROM event_timestamp)::bigint / :bsecs)
+        ) sub
+    """), {"tid": tid, "ps": period_start, "bsecs": _PEAK_BUCKET_SECS})).fetchone()
+
     total_events = ev_row.total or 0
-    prev_events = ev_row.prev_total or 0
-    period_secs = max((now - period_start).total_seconds(), 1)
-    eps_now = round(total_events / period_secs, 3)
-    delta_pct = _pct_delta(total_events, prev_events)
+    prev_events  = ev_row.prev_total or 0
+    period_secs  = max((now - period_start).total_seconds(), 1)
+    eps_now      = round(total_events / period_secs, 3)
+    eps_peak     = round((peak_row.peak_count or 0) / _PEAK_BUCKET_SECS, 3)
+    delta_pct    = _pct_delta(total_events, prev_events)
 
     ingestion = IngestionKPI(
         epsNow=eps_now,
-        epsPeak=eps_now,   # updated per-bucket in ingestion-rate endpoint
+        epsPeak=eps_peak,
         totalEvents=total_events,
         deltaPercent=delta_pct,
     )
@@ -364,7 +439,7 @@ async def get_dashboard_summary(
         delta24h=_pct_delta(curr_triggered, prev_triggered),
     )
 
-    return APIResponse.ok(DashboardSummary(
+    result = APIResponse.ok(DashboardSummary(
         alerts=alerts,
         investigations=investigations,
         ingestion=ingestion,
@@ -372,6 +447,8 @@ async def get_dashboard_summary(
         detection=detection,
         generatedAt=now.isoformat(),
     ))
+    await _kpi_set(redis, cache_key, result.model_dump_json())
+    return result
 
 
 # ─── /dashboard/ingestion-rate ────────────────────────────────────────────────
@@ -380,11 +457,16 @@ async def get_dashboard_summary(
 async def get_ingestion_rate(
     member: Annotated[object, require_permission(Permission.EVENTS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated["Redis[str] | None", Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[IngestionRateSeries]:
     from app.models.tenant_member import TenantMember
     m: TenantMember = member  # type: ignore[assignment]
     tid = str(m.tenant_id)
+
+    cache_key = _kpi_key(tid, "ingestion-rate", time_range)
+    if (cached := await _kpi_get(redis, cache_key)) is not None:
+        return APIResponse[IngestionRateSeries].model_validate_json(cached)
 
     period_start, now, bucket_secs = _window(time_range)
 
@@ -443,11 +525,13 @@ async def get_ingestion_rate(
         for p in points:
             p.normalizedEps = round(p.eps / peak_eps * 100, 1)
 
-    return APIResponse.ok(IngestionRateSeries(
+    result = APIResponse.ok(IngestionRateSeries(
         points=points,
         averageEps=avg_eps,
         peakEps=peak_eps,
     ))
+    await _kpi_set(redis, cache_key, result.model_dump_json())
+    return result
 
 
 # ─── /dashboard/detection-health ─────────────────────────────────────────────
@@ -456,11 +540,16 @@ async def get_ingestion_rate(
 async def get_detection_health(
     member: Annotated[object, require_permission(Permission.RULES_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated["Redis[str] | None", Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[DetectionHealthData]:
     from app.models.tenant_member import TenantMember
     m: TenantMember = member  # type: ignore[assignment]
     tid = str(m.tenant_id)
+
+    cache_key = _kpi_key(tid, "detection-health", time_range)
+    if (cached := await _kpi_get(redis, cache_key)) is not None:
+        return APIResponse[DetectionHealthData].model_validate_json(cached)
 
     period_start, now, _ = _window(time_range)
 
@@ -531,7 +620,7 @@ async def get_detection_health(
 
     avg_latency = round(sum(all_latencies) / len(all_latencies), 1) if all_latencies else 0.0
 
-    return APIResponse.ok(DetectionHealthData(
+    result = APIResponse.ok(DetectionHealthData(
         activeRules=counts_row.active or 0,
         disabledRules=counts_row.disabled or 0,
         noisyRules=noisy_count,
@@ -540,6 +629,8 @@ async def get_detection_health(
         ingestionToDetectionMs=avg_latency,
         topRules=top_rules[:10],
     ))
+    await _kpi_set(redis, cache_key, result.model_dump_json())
+    return result
 
 
 # ─── /dashboard/mitre-coverage ────────────────────────────────────────────────
@@ -548,11 +639,16 @@ async def get_detection_health(
 async def get_mitre_coverage(
     member: Annotated[object, require_permission(Permission.EVENTS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated["Redis[str] | None", Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[MitreCoverageData]:
     from app.models.tenant_member import TenantMember
     m: TenantMember = member  # type: ignore[assignment]
     tid = str(m.tenant_id)
+
+    cache_key = _kpi_key(tid, "mitre-coverage", time_range)
+    if (cached := await _kpi_get(redis, cache_key)) is not None:
+        return APIResponse[MitreCoverageData].model_validate_json(cached)
 
     period_start, now, _ = _window(time_range)
 
@@ -612,13 +708,15 @@ async def get_mitre_coverage(
             top_count = cnt
             top_technique = tid_str
 
-    return APIResponse.ok(MitreCoverageData(
+    result = APIResponse.ok(MitreCoverageData(
         techniqueCounts=technique_counts,
         totalAlerts=total_row.total or 0,
         coveredTechniques=len(technique_counts),
         topTechnique=top_technique,
         generatedAt=now.isoformat(),
     ))
+    await _kpi_set(redis, cache_key, result.model_dump_json())
+    return result
 
 
 # ─── /dashboard/correlation-activity ─────────────────────────────────────────
@@ -627,11 +725,16 @@ async def get_mitre_coverage(
 async def get_correlation_activity(
     member: Annotated[object, require_permission(Permission.INVESTIGATIONS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated["Redis[str] | None", Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[CorrelationActivityData]:
     from app.models.tenant_member import TenantMember
     m: TenantMember = member  # type: ignore[assignment]
     tid = str(m.tenant_id)
+
+    cache_key = _kpi_key(tid, "correlation-activity", time_range)
+    if (cached := await _kpi_get(redis, cache_key)) is not None:
+        return APIResponse[CorrelationActivityData].model_validate_json(cached)
 
     period_start, now, _ = _window(time_range)
     _TERMINAL = ("closed", "resolved", "false_positive")
@@ -711,12 +814,14 @@ async def get_correlation_activity(
             correlatedAt=r.created_at.isoformat() if r.created_at else now.isoformat(),
         ))
 
-    return APIResponse.ok(CorrelationActivityData(
+    result = APIResponse.ok(CorrelationActivityData(
         activeInvestigations=agg_row.active or 0,
         totalGroupedAlerts=int(agg_row.grouped_alerts or 0),
         totalEntities=int(agg_row.total_entities or 0),
         recentCorrelations=recent,
     ))
+    await _kpi_set(redis, cache_key, result.model_dump_json())
+    return result
 
 
 # ─── /dashboard/ai-operations ────────────────────────────────────────────────
@@ -725,11 +830,16 @@ async def get_correlation_activity(
 async def get_ai_operations(
     member: Annotated[object, require_permission(Permission.INVESTIGATIONS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
+    redis: Annotated["Redis[str] | None", Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[AIOperationsData]:
     from app.models.tenant_member import TenantMember
     m: TenantMember = member  # type: ignore[assignment]
     tid = str(m.tenant_id)
+
+    cache_key = _kpi_key(tid, "ai-operations", time_range)
+    if (cached := await _kpi_get(redis, cache_key)) is not None:
+        return APIResponse[AIOperationsData].model_validate_json(cached)
 
     period_start, now, _ = _window(time_range)
     cutoff_24h = now - timedelta(hours=24)
@@ -828,7 +938,7 @@ async def get_ai_operations(
 
     avg_conf = round(float(stats_row.avg_confidence), 1) if stats_row.avg_confidence else 0.0
 
-    return APIResponse.ok(AIOperationsData(
+    result = APIResponse.ok(AIOperationsData(
         queueDepth=pending,
         analyzedLast24h=stats_row.analyzed_24h or 0,
         truePositiveCount=stats_row.true_positive or 0,
@@ -837,3 +947,5 @@ async def get_ai_operations(
         avgConfidence=avg_conf,
         recentVerdicts=recent_verdicts,
     ))
+    await _kpi_set(redis, cache_key, result.model_dump_json())
+    return result

@@ -1,5 +1,4 @@
-import { apiClient } from './client'
-import { apiPost, apiGet } from './client'
+import { apiPost, apiGet, apiPatch, apiDelete } from './client'
 
 export interface Agent {
   id: string
@@ -57,16 +56,17 @@ export const agentsApi = {
     limit?: number
     page?: number
     search?: string
-  }) => apiClient.get<AgentsListResponse>('/agents', { params }),
+  }): Promise<AgentsListResponse> =>
+    apiGet<AgentsListResponse>('/agents', params as Record<string, unknown>),
 
-  get: (id: string) =>
-    apiClient.get<{ data: Agent; error: null }>(`/agents/${id}`),
+  get: (id: string): Promise<Agent> =>
+    apiGet<Agent>(`/agents/${id}`),
 
-  update: (id: string, data: { tags?: string[]; name?: string }) =>
-    apiClient.patch<{ data: Agent; error: null }>(`/agents/${id}`, data),
+  update: (id: string, data: { tags?: string[]; name?: string }): Promise<Agent> =>
+    apiPatch<Agent>(`/agents/${id}`, data),
 
-  delete: (id: string) =>
-    apiClient.delete(`/agents/${id}`),
+  delete: (id: string): Promise<void> =>
+    apiDelete(`/agents/${id}`),
 
   getContainment: (id: string): Promise<ContainmentStatus> =>
     apiGet<ContainmentStatus>(`/agents/${id}/containment`),

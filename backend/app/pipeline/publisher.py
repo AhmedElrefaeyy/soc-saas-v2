@@ -5,10 +5,19 @@ from typing import Any
 
 import structlog
 
+from app.core.logging import get_request_id
 from app.core.redis import TenantRedisClient
 from app.pipeline import stream_names
 
 logger = structlog.get_logger(__name__)
+
+
+def _inject_trace_id(payload: dict[str, Any]) -> dict[str, Any]:
+    """Stamp the current request_id into the payload for end-to-end correlation."""
+    rid = get_request_id()
+    if rid and "request_id" not in payload:
+        return {**payload, "request_id": rid}
+    return payload
 
 
 class StreamPublisher:
@@ -24,7 +33,7 @@ class StreamPublisher:
         """Publish an agent raw event to the raw_events stream."""
         stream_id = await self._client.xadd(
             stream_names.RAW_EVENTS,
-            {"data": orjson.dumps(payload).decode()},
+            {"data": orjson.dumps(_inject_trace_id(payload)).decode()},
             maxlen=stream_names.RAW_STREAM_MAX_LEN,
         )
         logger.debug(

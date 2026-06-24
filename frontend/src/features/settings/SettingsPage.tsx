@@ -3,8 +3,12 @@ import {
   User, Building2, Key, Users, Bell, Bot,
   Plus, Copy, Check, Trash2, CheckCircle,
   Mail, ChevronDown, ChevronUp, Shield, X, AlertCircle, Lock, Camera, Loader,
-  Zap,
+  Zap, Ticket, Gauge, BarChart3, BellRing,
 } from 'lucide-react'
+import { NotificationRulesSection } from './NotificationRulesSection'
+import { SeverityThresholdsSection } from './SeverityThresholdsSection'
+import { QuotaDashboardSection } from './QuotaDashboardSection'
+import { TicketingConfigSection } from './TicketingConfigSection'
 import { Button } from '@/components/ui/Button'
 import { formatRelativeTime } from '@/lib/utils'
 import { useAuthStore } from '@/stores/authStore'
@@ -1843,12 +1847,16 @@ function AutomationTab() {
 import type { MemberRole } from '@/types/tenant'
 
 const ALL_TABS = [
-  { id: 'profile',       label: 'Profile',       icon: User,      minRole: 'viewer'  as MemberRole },
-  { id: 'org',           label: 'Organization',  icon: Building2, minRole: 'admin'   as MemberRole },
-  { id: 'api-keys',      label: 'API Keys',      icon: Key,       minRole: 'admin'   as MemberRole },
-  { id: 'members',       label: 'Members',       icon: Users,     minRole: 'viewer'  as MemberRole },
-  { id: 'notifications', label: 'Notifications', icon: Bell,      minRole: 'viewer'  as MemberRole },
-  { id: 'automation',    label: 'Automation',    icon: Zap,       minRole: 'admin'   as MemberRole },
+  { id: 'profile',              label: 'Profile',             icon: User,      minRole: 'viewer'  as MemberRole },
+  { id: 'org',                  label: 'Organization',        icon: Building2, minRole: 'admin'   as MemberRole },
+  { id: 'api-keys',             label: 'API Keys',            icon: Key,       minRole: 'admin'   as MemberRole },
+  { id: 'members',              label: 'Members',             icon: Users,     minRole: 'viewer'  as MemberRole },
+  { id: 'notifications',        label: 'Notifications',       icon: Bell,      minRole: 'viewer'  as MemberRole },
+  { id: 'notification-rules',   label: 'Alert Routing',       icon: BellRing,  minRole: 'admin'   as MemberRole },
+  { id: 'severity-thresholds',  label: 'Severity Thresholds', icon: BarChart3, minRole: 'admin'   as MemberRole },
+  { id: 'ticketing',            label: 'Integrations',        icon: Ticket,    minRole: 'admin'   as MemberRole },
+  { id: 'quota',                label: 'Quota & Usage',       icon: Gauge,     minRole: 'admin'   as MemberRole },
+  { id: 'automation',           label: 'Automation',          icon: Zap,       minRole: 'admin'   as MemberRole },
 ] as const
 
 type TabId = typeof ALL_TABS[number]['id']
@@ -1903,12 +1911,16 @@ export function SettingsPage() {
 
       {/* Content */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 32px 32px' }}>
-        {activeTab === 'profile'       && <ProfileTab       />}
-        {activeTab === 'org'           && <OrgTab           />}
-        {activeTab === 'api-keys'      && <ApiKeysTab       />}
-        {activeTab === 'members'       && <MembersTab       />}
-        {activeTab === 'notifications' && <NotificationsTab />}
-        {activeTab === 'automation'    && <AutomationTab    />}
+        {activeTab === 'profile'             && <ProfileTab              />}
+        {activeTab === 'org'                 && <OrgTab                  />}
+        {activeTab === 'api-keys'            && <ApiKeysTab              />}
+        {activeTab === 'members'             && <MembersTab              />}
+        {activeTab === 'notifications'       && <NotificationsTab        />}
+        {activeTab === 'notification-rules'  && <NotificationRulesSection />}
+        {activeTab === 'severity-thresholds' && <SeverityThresholdsSection />}
+        {activeTab === 'ticketing'           && <TicketingConfigSection  />}
+        {activeTab === 'quota'               && <QuotaDashboardSection   />}
+        {activeTab === 'automation'          && <AutomationTab           />}
       </div>
     </div>
   )

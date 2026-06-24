@@ -1,28 +1,32 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { agentsApi } from '@/api/agents'
+import { useTenantStore } from '@/stores/tenantStore'
 
 export function useAgents(params?: { status?: string; search?: string }) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id)
   return useQuery({
-    queryKey: ['agents', params],
+    queryKey: ['agents', tenantId, params],
     queryFn: async () => {
       const resp = await agentsApi.list(params)
       return {
-        items: resp.data.data,
-        total: resp.data.pagination.total,
+        items: resp.data,
+        total: resp.pagination.total,
       }
     },
+    enabled: !!tenantId,
     refetchInterval: 30_000,
   })
 }
 
 export function useAgent(id: string) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id)
   return useQuery({
-    queryKey: ['agents', id],
+    queryKey: ['agents', tenantId, id],
     queryFn: async () => {
-      const resp = await agentsApi.get(id)
-      return resp.data.data
+      const agent = await agentsApi.get(id)
+      return agent
     },
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   })
 }
 

@@ -1,8 +1,6 @@
 """
 RAG service — ingest knowledge sources into PostgreSQL and retrieve
-relevant chunks using full-text search + JSONB tag matching.
-
-No vectors, no pgvector — plain Postgres FTS is sufficient for Phase 2.
+relevant chunks using pgvector cosine similarity with FTS fallback.
 """
 from __future__ import annotations
 
@@ -20,6 +18,34 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.rag_chunk import RAGChunk
 
 log = structlog.get_logger(__name__)
+
+# ─── Embedding generation ─────────────────────────────────────────────────────
+
+async def _get_embedding(text_input: str) -> list[float] | None:
+    """
+    Generate a 1536-dimensional embedding using Google Gemini.
+    Returns None when GEMINI_API_KEY is not configured or the call fails,
+    allowing graceful fallback to FTS retrieval.
+    """
+    from app.core.config import settings
+    if not settings.GEMINI_API_KEY:
+        return None
+    try:
+        from google import genai
+        from google.genai import types as genai_types
+
+        client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        # text-embedding-004 supports variable output dimensionality via newer models.
+        # We request 1536 to match the Vector(1536) column.
+        response = await client.aio.models.embed_content(
+            model="gemini-embedding-exp-03-07",
+            contents=text_input[:8000],  # cap token count
+            config=genai_types.EmbedContentConfig(output_dimensionality=1536),
+        )
+        return list(response.embeddings[0].values)
+    except Exception as exc:
+        log.debug("rag_embedding_failed", error=str(exc)[:120])
+        return None
 
 # ─── Static knowledge: Threat Actors ─────────────────────────────────────────
 
@@ -122,14 +148,52 @@ WINDOWS_EVENTS = {
     "4656": ("Handle Requested (LSASS)", "Object handle requested. Critical when targeting lsass.exe for credential dumping via Mimikatz or Procdump.", ["T1003.001"]),
 }
 
+# Allowlisted RAG source URLs — only these exact origins are permitted.
+# Prevents SSRF if an attacker somehow influences the URL being fetched.
+_ALLOWED_RAG_ORIGINS: frozenset[str] = frozenset({
+    "https://raw.githubusercontent.com",
+    "https://www.cisa.gov",
+    "https://lolbas-project.github.io",
+})
+
+# Maximum response body size per source (prevents memory exhaustion).
+_MAX_RAG_RESPONSE_BYTES = 25 * 1024 * 1024  # 25 MiB
+
+
+def _validate_rag_url(url: str) -> None:
+    """Raise ValueError if URL is not in the allowlist or uses a disallowed scheme."""
+    import urllib.parse
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in ("https",):
+        raise ValueError(f"RAG URL must use HTTPS, got: {parsed.scheme!r}")
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    if origin not in _ALLOWED_RAG_ORIGINS:
+        raise ValueError(f"RAG URL origin not allowlisted: {origin!r}")
+
+
 # ─── HTTP helper ──────────────────────────────────────────────────────────────
 
 async def _http_get(client: httpx.AsyncClient, url: str) -> bytes | None:
+    try:
+        _validate_rag_url(url)
+    except ValueError as exc:
+        log.error("rag_http_url_rejected", url=url, reason=str(exc))
+        return None
+
     for attempt in range(3):
         try:
             resp = await client.get(url)
             if resp.status_code == 200:
-                return resp.content
+                body = resp.content
+                if len(body) > _MAX_RAG_RESPONSE_BYTES:
+                    log.warning(
+                        "rag_http_response_too_large",
+                        url=url,
+                        size=len(body),
+                        limit=_MAX_RAG_RESPONSE_BYTES,
+                    )
+                    return None
+                return body
             if resp.status_code == 429:
                 await asyncio.sleep(5 * (2 ** attempt))
                 continue
@@ -150,10 +214,19 @@ async def _http_get(client: httpx.AsyncClient, url: str) -> bytes | None:
 async def _upsert_chunks(db: AsyncSession, rows: list[dict[str, Any]]) -> int:
     """
     Bulk upsert using INSERT ... ON CONFLICT (chunk_id) DO UPDATE.
+    Generates embeddings for rows that don't already have one.
     Returns number of rows processed.
     """
     if not rows:
         return 0
+
+    # Generate embeddings for rows that lack one (best-effort, non-blocking)
+    for row in rows:
+        if row.get("embedding") is None:
+            content = row.get("content", "")
+            title = row.get("title", "")
+            row["embedding"] = await _get_embedding(f"{title}\n\n{content}")
+
     stmt = pg_insert(RAGChunk.__table__).values(rows)
     stmt = stmt.on_conflict_do_update(
         index_elements=["chunk_id"],
@@ -162,6 +235,7 @@ async def _upsert_chunks(db: AsyncSession, rows: list[dict[str, Any]]) -> int:
             "title":      stmt.excluded.title,
             "tags":       stmt.excluded.tags,
             "metadata":   stmt.excluded.metadata,
+            "embedding":  stmt.excluded.embedding,
             "updated_at": func.now(),
         },
     )
@@ -454,7 +528,7 @@ async def ingest_all(db: AsyncSession, force: bool = False) -> dict[str, int]:
     async with httpx.AsyncClient(
         timeout=60,
         headers={"User-Agent": "NEURASHIELD-SOC-RAG/2.0"},
-        follow_redirects=True,
+        follow_redirects=False,  # never follow redirects — prevents SSRF via open redirect
     ) as client:
         # Static sources (no HTTP — always fast)
         for source_name, fn in [
@@ -504,9 +578,10 @@ async def retrieve(
     Retrieve relevant RAG chunks for a set of MITRE TTPs and optional keywords.
 
     Strategy:
-      1. Exact JSONB tag match on TTP codes  → highest relevance
-      2. Full-text search on content with TTP names + keywords
-      3. Deduplicate, cap at `limit`
+      1. pgvector cosine similarity on query embedding   → semantic relevance
+      2. Exact JSONB tag match on TTP codes              → precise TTP hits
+      3. Full-text search on content                     → keyword coverage
+      4. Broad keyword fallback if still short
     """
     if keywords is None:
         keywords = []
@@ -514,7 +589,33 @@ async def retrieve(
     seen_ids: set[str] = set()
     chunks: list[RAGChunk] = []
 
-    # Step 1 — exact tag matches for each TTP (tags @> '["T1059.001"]'::jsonb)
+    # Step 1 — vector similarity (primary path when embeddings are populated)
+    query_text = " ".join(ttps[:6] + (keywords[:4] if keywords else []))
+    query_embedding = await _get_embedding(query_text) if query_text else None
+    if query_embedding is not None:
+        try:
+            from pgvector.sqlalchemy import Vector
+            from sqlalchemy import cast
+            vec_result = await db.execute(
+                select(RAGChunk)
+                .where(RAGChunk.embedding.is_not(None))
+                .order_by(
+                    RAGChunk.embedding.cosine_distance(cast(query_embedding, Vector(1536)))
+                )
+                .limit(limit)
+            )
+            for row in vec_result.scalars().all():
+                cid = str(row.chunk_id)
+                if cid not in seen_ids:
+                    seen_ids.add(cid)
+                    chunks.append(row)
+        except Exception as exc:
+            log.debug("rag_vector_search_failed", error=str(exc)[:120])
+
+    if len(chunks) >= limit:
+        return chunks[:limit]
+
+    # Step 2 — exact tag matches for each TTP (tags @> '["T1059.001"]'::jsonb)
     if ttps:
         for ttp in ttps[:6]:
             result = await db.execute(
@@ -530,7 +631,7 @@ async def retrieve(
                     if len(chunks) >= limit:
                         return chunks
 
-    # Step 2 — FTS on content using technique IDs + keywords
+    # Step 3 — FTS on content using technique IDs + keywords
     # Strip dots/dashes to a single alphanumeric token (T1059.001 -> T1059001)
     # so to_tsquery never sees the <-> phrase operator.
     search_terms = ttps[:4] + (keywords[:4] if keywords else [])
@@ -564,7 +665,7 @@ async def retrieve(
                     if len(chunks) >= limit:
                         return chunks
 
-    # Step 3 — broad keyword fallback if still short
+    # Step 4 — broad keyword fallback if still short
     if len(chunks) < 3 and keywords:
         kw_query = " | ".join(
             kw for kw in keywords[:6]

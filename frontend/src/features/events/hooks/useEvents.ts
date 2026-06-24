@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { eventsApi, type EventSearchRequest } from '@/api/events'
 import { severityToInt } from '@/api/events'
+import { useTenantStore } from '@/stores/tenantStore'
 
 export interface UseEventsParams {
   // Legacy individual params (backward compatible)
@@ -16,8 +17,9 @@ export interface UseEventsParams {
 }
 
 export function useEvents(params?: UseEventsParams) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id)
   return useQuery({
-    queryKey: ['events', params],
+    queryKey: ['events', tenantId, params],
     queryFn: async () => {
       const sr = params?.searchRequest
       const hasSR = sr && Object.keys(sr).length > 0
@@ -49,17 +51,20 @@ export function useEvents(params?: UseEventsParams) {
       const resp = await eventsApi.search(body)
       return resp.data
     },
+    enabled: !!tenantId,
     staleTime: 10_000,
+    refetchInterval: 30_000,
   })
 }
 
 export function useEvent(id: string) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id)
   return useQuery({
-    queryKey: ['event', id],
+    queryKey: ['event', tenantId, id],
     queryFn: async () => {
       const resp = await eventsApi.get(id)
       return resp.data.data
     },
-    enabled: !!id,
+    enabled: !!id && !!tenantId,
   })
 }

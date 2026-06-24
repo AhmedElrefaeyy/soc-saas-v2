@@ -1,26 +1,29 @@
 import { useQuery } from "@tanstack/react-query";
 import * as dashboardApi from "@/services/dashboardApi";
 import type { DashboardTimeRange } from "@/features/dashboard/types/dashboard";
+import { useTenantStore } from "@/stores/tenantStore";
 
 // ─── Query key factory ────────────────────────────────────────────────────────
 
 export const dashboardKeys = {
-  all:              () => ["dashboard"] as const,
-  summary:          (tr: DashboardTimeRange) => ["dashboard", "summary", tr] as const,
-  ingestionRate:    (tr: DashboardTimeRange) => ["dashboard", "ingestion-rate", tr] as const,
-  alertsFeed:       (tr: DashboardTimeRange) => ["dashboard", "alerts-feed", tr] as const,
-  detectionHealth:  (tr: DashboardTimeRange) => ["dashboard", "detection-health", tr] as const,
-  mitreCoverage:    (tr: DashboardTimeRange) => ["dashboard", "mitre-coverage", tr] as const,
-  correlation:      (tr: DashboardTimeRange) => ["dashboard", "correlation", tr] as const,
-  aiOperations:     (tr: DashboardTimeRange) => ["dashboard", "ai-operations", tr] as const,
+  all:              (tid: string) => ["dashboard", tid] as const,
+  summary:          (tid: string, tr: DashboardTimeRange) => ["dashboard", tid, "summary", tr] as const,
+  ingestionRate:    (tid: string, tr: DashboardTimeRange) => ["dashboard", tid, "ingestion-rate", tr] as const,
+  alertsFeed:       (tid: string, tr: DashboardTimeRange) => ["dashboard", tid, "alerts-feed", tr] as const,
+  detectionHealth:  (tid: string, tr: DashboardTimeRange) => ["dashboard", tid, "detection-health", tr] as const,
+  mitreCoverage:    (tid: string, tr: DashboardTimeRange) => ["dashboard", tid, "mitre-coverage", tr] as const,
+  correlation:      (tid: string, tr: DashboardTimeRange) => ["dashboard", tid, "correlation", tr] as const,
+  aiOperations:     (tid: string, tr: DashboardTimeRange) => ["dashboard", tid, "ai-operations", tr] as const,
 };
 
 // ─── KPI summary ──────────────────────────────────────────────────────────────
 
 export function useKPISummary(timeRange: DashboardTimeRange) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? ""
   return useQuery({
-    queryKey: dashboardKeys.summary(timeRange),
+    queryKey: dashboardKeys.summary(tenantId, timeRange),
     queryFn: () => dashboardApi.getDashboardSummary({ timeRange }),
+    enabled: !!tenantId,
     staleTime: 30_000,
     refetchInterval: 60_000,
     placeholderData: dashboardApi.PLACEHOLDER_SUMMARY,
@@ -31,9 +34,11 @@ export function useKPISummary(timeRange: DashboardTimeRange) {
 // ─── Ingestion rate chart ─────────────────────────────────────────────────────
 
 export function useIngestionRate(timeRange: DashboardTimeRange) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? ""
   return useQuery({
-    queryKey: dashboardKeys.ingestionRate(timeRange),
+    queryKey: dashboardKeys.ingestionRate(tenantId, timeRange),
     queryFn: () => dashboardApi.getIngestionRate({ timeRange }),
+    enabled: !!tenantId,
     staleTime: 15_000,
     refetchInterval: 30_000,
     placeholderData: () => dashboardApi.buildPlaceholderIngestionSeries(
@@ -46,9 +51,11 @@ export function useIngestionRate(timeRange: DashboardTimeRange) {
 // ─── Live alerts feed ─────────────────────────────────────────────────────────
 
 export function useAlertsFeed(timeRange: DashboardTimeRange) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? ""
   return useQuery({
-    queryKey: dashboardKeys.alertsFeed(timeRange),
+    queryKey: dashboardKeys.alertsFeed(tenantId, timeRange),
     queryFn: () => dashboardApi.getAlertsFeed({ timeRange, limit: 100 }),
+    enabled: !!tenantId,
     staleTime: 15_000,
     refetchInterval: 20_000,
     placeholderData: [],
@@ -59,9 +66,11 @@ export function useAlertsFeed(timeRange: DashboardTimeRange) {
 // ─── Detection health ─────────────────────────────────────────────────────────
 
 export function useDetectionHealth(timeRange: DashboardTimeRange) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? ""
   return useQuery({
-    queryKey: dashboardKeys.detectionHealth(timeRange),
+    queryKey: dashboardKeys.detectionHealth(tenantId, timeRange),
     queryFn: () => dashboardApi.getDetectionHealth({ timeRange }),
+    enabled: !!tenantId,
     staleTime: 60_000,
     refetchInterval: 120_000,
     placeholderData: dashboardApi.PLACEHOLDER_DETECTION_HEALTH,
@@ -72,11 +81,13 @@ export function useDetectionHealth(timeRange: DashboardTimeRange) {
 // ─── MITRE coverage ───────────────────────────────────────────────────────────
 
 export function useMitreCoverage(timeRange: DashboardTimeRange) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? ""
   return useQuery({
-    queryKey: dashboardKeys.mitreCoverage(timeRange),
+    queryKey: dashboardKeys.mitreCoverage(tenantId, timeRange),
     queryFn: () => dashboardApi.getMitreCoverage({ timeRange }),
+    enabled: !!tenantId,
     staleTime: 60_000,
-    refetchInterval: 300_000,   // 5min — MITRE data changes slowly
+    refetchInterval: 300_000,
     placeholderData: dashboardApi.PLACEHOLDER_MITRE_COVERAGE,
     retry: 1,
   });
@@ -85,9 +96,11 @@ export function useMitreCoverage(timeRange: DashboardTimeRange) {
 // ─── Correlation activity ─────────────────────────────────────────────────────
 
 export function useCorrelationActivity(timeRange: DashboardTimeRange) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? ""
   return useQuery({
-    queryKey: dashboardKeys.correlation(timeRange),
+    queryKey: dashboardKeys.correlation(tenantId, timeRange),
     queryFn: () => dashboardApi.getCorrelationActivity({ timeRange }),
+    enabled: !!tenantId,
     staleTime: 30_000,
     refetchInterval: 60_000,
     placeholderData: dashboardApi.PLACEHOLDER_CORRELATION,
@@ -98,9 +111,11 @@ export function useCorrelationActivity(timeRange: DashboardTimeRange) {
 // ─── AI operations ────────────────────────────────────────────────────────────
 
 export function useAIOperations(timeRange: DashboardTimeRange) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? ""
   return useQuery({
-    queryKey: dashboardKeys.aiOperations(timeRange),
+    queryKey: dashboardKeys.aiOperations(tenantId, timeRange),
     queryFn: () => dashboardApi.getAIOperations({ timeRange }),
+    enabled: !!tenantId,
     staleTime: 30_000,
     refetchInterval: 60_000,
     placeholderData: dashboardApi.PLACEHOLDER_AI_OPS,

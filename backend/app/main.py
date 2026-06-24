@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.database import database_manager
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
-from app.core.middleware import RequestContextMiddleware
+from app.core.middleware import ContentLengthLimitMiddleware, PrometheusMiddleware, RequestContextMiddleware, SecurityHeadersMiddleware
 from app.core.redis import redis_manager
 
 logger = structlog.get_logger(__name__)
@@ -28,6 +28,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         version=settings.APP_VERSION,
         environment=settings.ENVIRONMENT,
     )
+
+    # Set Prometheus build info once at startup.
+    from app.core.metrics import BUILD_INFO
+    BUILD_INFO.info({"version": settings.APP_VERSION, "environment": settings.ENVIRONMENT})
 
     # ── Run Alembic migrations on every startup ────────────────────────────
     # Safe: alembic upgrade head is idempotent — no-op when schema is current.
@@ -53,6 +57,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             error=str(migration_err),
             error_type=type(migration_err).__name__,
         )
+        # A failed migration means the DB schema is in an unknown state.
+        # Starting the app would risk data corruption or silent API errors,
+        # so we abort startup here to surface the failure immediately.
+        raise
     # ──────────────────────────────────────────────────────────────────────
 
     await database_manager.initialize()
@@ -72,7 +80,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             else:
                 logger.info("rag_already_populated", chunk_count=count)
 
-    asyncio.create_task(_maybe_ingest_rag())
+    from app.core.utils import create_task_safe
+    create_task_safe(_maybe_ingest_rag(), name="startup_rag_ingest")
     # ──────────────────────────────────────────────────────────────────────
 
     # ── Seed system playbook templates ────────────────────────────────────
@@ -84,7 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         except Exception:
             logger.warning("playbook_seed_failed", exc_info=True)
 
-    asyncio.create_task(_seed_playbooks())
+    create_task_safe(_seed_playbooks(), name="startup_playbook_seed")
     # ──────────────────────────────────────────────────────────────────────
 
     # Redis is optional — rate limiting degrades gracefully when unavailable.
@@ -97,6 +106,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             error=str(redis_exc),
             detail="Rate limiting and session features will be skipped until Redis is reachable.",
         )
+
+    try:
+        from app.core.redis import initialize_stream_redis
+        await initialize_stream_redis()
+        logger.info("stream_redis_ready")
+    except Exception as stream_exc:
+        logger.warning("stream_redis_unavailable", error=str(stream_exc))
 
     logger.info("application_ready")
     yield
@@ -123,10 +139,16 @@ def create_application() -> FastAPI:
     register_exception_handlers(app)
 
     # ─── Middleware (LAST add_middleware call = OUTERMOST layer) ─────────────
-    # RequestContextMiddleware is registered first → sits INSIDE CORSMiddleware.
-    # CORSMiddleware is registered last → OUTERMOST, so it adds CORS headers to
-    # ALL responses including those produced by exception handlers.
+    # Stack order (innermost → outermost at request time):
+    #   SecurityHeaders → RequestContext → CORS
+    # SecurityHeadersMiddleware is registered first so it sits INSIDE the CORS
+    # layer; its headers are added to every response including error responses.
+    app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestContextMiddleware)
+    # Reject oversized payloads before they reach application code.
+    app.add_middleware(ContentLengthLimitMiddleware, max_bytes=10 * 1024 * 1024)
+    # Prometheus RED metrics — registered last (outermost) to capture full latency.
+    app.add_middleware(PrometheusMiddleware)
 
     origins = settings.ALLOWED_ORIGINS
     use_wildcard = origins == ["*"]
@@ -137,8 +159,17 @@ def create_application() -> FastAPI:
         allow_origin_regex=settings.CORS_ALLOW_ORIGIN_REGEX or None,
         # Wildcard origin cannot be combined with allow_credentials=True.
         allow_credentials=not use_wildcard,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "X-Tenant-ID",
+            "X-Request-ID",
+            "X-Idempotency-Key",
+            "Accept",
+            "Accept-Language",
+            "Cache-Control",
+        ],
         expose_headers=["X-Request-ID", "X-RateLimit-Limit", "X-RateLimit-Remaining"],
     )
 

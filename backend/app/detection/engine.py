@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.redis import TenantRedisClient
@@ -147,7 +147,12 @@ class DetectionEngine:
                 SuppressionRule.tenant_id == self._tenant_id,
                 SuppressionRule.enabled.is_(True),
                 SuppressionRule.deleted_at.is_(None),
-                SuppressionRule.expires_at > now,
+                # NULL expires_at means the rule never expires (permanent suppression).
+                # A bare `> now` would exclude NULL rows, silently dropping all permanent rules.
+                or_(
+                    SuppressionRule.expires_at.is_(None),
+                    SuppressionRule.expires_at > now,
+                ),
             )
         )
         return list(result.scalars().all())

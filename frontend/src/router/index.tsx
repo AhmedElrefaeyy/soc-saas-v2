@@ -5,6 +5,7 @@ import { AuthGuard } from "@/features/auth/AuthGuard";
 import { RequireRole } from "@/components/auth/RequireRole";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { RegisterPage } from "@/features/auth/RegisterPage";
+import { MFALoginPromptPage } from "@/features/auth/MFALoginPromptPage";
 import { NotFound } from "@/pages/NotFound";
 import { Unauthorized } from "@/pages/Unauthorized";
 import { LandingPage } from "@/pages/LandingPage";
@@ -156,6 +157,9 @@ const ResetPasswordPage = lazyPage(() =>
 const VerifyEmailPage = lazyPage(() =>
   import("@/features/auth/VerifyEmailPage").then((m) => ({ default: m.VerifyEmailPage }))
 );
+const MFASetupPage = lazyPage(() =>
+  import("@/features/auth/MFASetupPage").then((m) => ({ default: m.MFASetupPage }))
+);
 const PlaybooksPage = lazyPage(() =>
   import("@/features/playbooks/PlaybooksPage").then((m) => ({ default: m.PlaybooksPage }))
 );
@@ -167,6 +171,39 @@ const ReportsPage = lazyPage(() =>
 );
 const ImportPage = lazyPage(() =>
   import("@/features/import/ImportPage").then((m) => ({ default: m.ImportPage }))
+);
+const SocMetricsPage = lazyPage(() =>
+  import("@/features/soc-metrics/SocMetricsPage").then((m) => ({ default: m.SocMetricsPage }))
+);
+const AssetsPage = lazyPage(() =>
+  import("@/features/assets/AssetsPage").then((m) => ({ default: m.AssetsPage }))
+);
+const UEBADashboard = lazyPage(() =>
+  import("@/features/ueba/UEBADashboard").then((m) => ({ default: m.UEBADashboard }))
+);
+const AuditLogPage = lazyPage(() =>
+  import("@/features/audit-log/AuditLogPage").then((m) => ({ default: m.AuditLogPage }))
+);
+const SuppressionRulesPage = lazyPage(() =>
+  import("@/features/rules/suppression/SuppressionRulesPage").then((m) => ({ default: m.SuppressionRulesPage }))
+);
+const ThreatIntelPage = lazyPage(() =>
+  import("@/features/threat-intel/ThreatIntelPage").then((m) => ({ default: m.ThreatIntelPage }))
+);
+const MitreNavigatorPage = lazyPage(() =>
+  import("@/features/mitre/MitreNavigatorPage").then((m) => ({ default: m.MitreNavigatorPage }))
+);
+const MSSPOverviewPage = lazyPage(() =>
+  import("@/features/mssp/MSSPOverviewPage").then((m) => ({ default: m.MSSPOverviewPage }))
+);
+const FleetDashboardPage = lazyPage(() =>
+  import("@/features/fleet/FleetDashboardPage").then((m) => ({ default: m.FleetDashboardPage }))
+);
+const ComplianceSchedulerPage = lazyPage(() =>
+  import("@/features/reports/ComplianceSchedulerPage").then((m) => ({ default: m.ComplianceSchedulerPage }))
+);
+const SLADashboard = lazyPage(() =>
+  import("@/features/soc-metrics/SLADashboard").then((m) => ({ default: m.SLADashboard }))
 );
 
 // ─── Loading fallback ─────────────────────────────────────────────────────────
@@ -194,6 +231,8 @@ const router = createBrowserRouter([
   { path: "/login",            element: <LoginPage /> },
   { path: "/register",         element: <RegisterPage /> },
   { path: "/unauthorized",     element: <Unauthorized /> },
+  { path: "/mfa-login",        element: <MFALoginPromptPage /> },
+  { path: "/mfa-setup",        element: <S><MFASetupPage /></S> },
   { path: "/accept-invite",    element: <S><AcceptInvitePage /></S> },
   { path: "/forgot-password",  element: <S><ForgotPasswordPage /></S> },
   { path: "/reset-password",   element: <S><ResetPasswordPage /></S> },
@@ -240,6 +279,19 @@ const router = createBrowserRouter([
       { path: "reports",            element: <S><RequireRole min="analyst"><ReportsPage /></RequireRole></S> },
       // log import
       { path: "import",             element: <S><RequireRole min="admin"><ImportPage /></RequireRole></S> },
+      // SOC Operations
+      { path: "soc-metrics",        element: <S><RequireRole min="analyst"><SocMetricsPage /></RequireRole></S> },
+      { path: "soc-metrics/sla",    element: <S><RequireRole min="analyst"><SLADashboard /></RequireRole></S> },
+      { path: "assets",             element: <S><RequireRole min="analyst"><AssetsPage /></RequireRole></S> },
+      { path: "ueba",               element: <S><RequireRole min="analyst"><UEBADashboard /></RequireRole></S> },
+      { path: "audit-log",          element: <S><RequireRole min="admin"><AuditLogPage /></RequireRole></S> },
+      { path: "rules/suppression",  element: <S><RequireRole min="analyst"><SuppressionRulesPage /></RequireRole></S> },
+      { path: "threat-intel",       element: <S><RequireRole min="analyst"><ThreatIntelPage /></RequireRole></S> },
+      { path: "mitre",              element: <S><RequireRole min="analyst"><MitreNavigatorPage /></RequireRole></S> },
+      { path: "compliance-reports", element: <S><RequireRole min="analyst"><ComplianceSchedulerPage /></RequireRole></S> },
+      // Admin / MSSP
+      { path: "fleet",              element: <S><RequireRole min="admin"><FleetDashboardPage /></RequireRole></S> },
+      { path: "mssp",               element: <S><RequireRole min="admin"><MSSPOverviewPage /></RequireRole></S> },
     ],
   },
 

@@ -7,6 +7,7 @@ import structlog
 
 from app.core.database import database_manager
 from app.core.redis import TenantRedisClient, redis_manager
+from app.core.utils import create_task_safe
 from app.correlation.grouping import CorrelationGrouper
 from app.investigation.engine import InvestigationEngine
 from app.pipeline import stream_names
@@ -48,6 +49,7 @@ class InvestigationWorker:
             stream_names.CORRELATED_EVENTS,
             stream_names.GROUP_INVESTIGATE,
             self._consumer_name,
+            tenant_id=self._tenant_id,
         )
 
         await consumer.run(self._handle_message, stop_event)
@@ -117,23 +119,24 @@ class InvestigationWorker:
         if is_new_investigation:
             try:
                 from app.services.notification_service import notify_investigation_email
-                asyncio.create_task(notify_investigation_email(
+                create_task_safe(notify_investigation_email(
                     investigation_id=investigation_id,
                     tenant_id=self._tenant_id,
                     title=result.summary.executive_summary[:100] if result.summary else "New Investigation",
                     threat_score=result.score.threat_score,
                     verdict_suggestion=None,  # AI analysis runs later
-                ))
+                ), name=f"notify_investigation_{investigation_id}")
             except Exception:
                 logger.warning("investigation_email_notify_failed", exc_info=True)
 
         # Auto-generate playbook for new investigations above threshold — non-blocking
         if is_new_investigation and result.score.threat_score >= 45:
-            asyncio.create_task(
+            create_task_safe(
                 _auto_generate_investigation_playbook(
                     investigation_id=investigation_id,
                     tenant_id=self._tenant_id,
-                )
+                ),
+                name=f"auto_playbook_inv_{investigation_id}",
             )
 
         # AI Analysis — only for high-confidence or high-severity investigations

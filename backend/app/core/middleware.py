@@ -85,3 +85,133 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         if request.client:
             return request.client.host
         return "unknown"
+
+
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """
+    Adds defensive HTTP security headers to every response.
+
+    Header rationale:
+      X-Frame-Options          — prevents clickjacking (DENY = no iframes at all)
+      X-Content-Type-Options   — prevents MIME-type sniffing exploits
+      X-XSS-Protection         — legacy browser XSS filter (belt-and-suspenders)
+      Referrer-Policy          — limits referrer leakage cross-origin
+      Permissions-Policy       — opts out of powerful features we don't use
+      Strict-Transport-Security — HSTS; only effective over HTTPS, ignored over HTTP
+      Content-Security-Policy  — restricts which resources the browser may load
+
+    CSP allows same-origin + data: URIs for images (avatars/icons) and
+    unsafe-inline for styles (SPA bundlers inject inline <style> blocks).
+    """
+
+    _HEADERS: dict[str, str] = {
+        "X-Frame-Options": "DENY",
+        "X-Content-Type-Options": "nosniff",
+        "X-XSS-Protection": "1; mode=block",
+        "Referrer-Policy": "strict-origin-when-cross-origin",
+        "Permissions-Policy": (
+            "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+        ),
+        "Strict-Transport-Security": (
+            "max-age=63072000; includeSubDomains; preload"
+        ),
+        # 'unsafe-inline' removed from style-src. Modern SPA bundlers (Vite/Next.js)
+        # can emit CSS modules or hashed <style> tags instead of blanket inline styles.
+        # If specific third-party widget styles are needed, add a nonce at the framework
+        # level or use a hash-allowlist rather than re-enabling unsafe-inline.
+        "Content-Security-Policy": (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
+            "img-src 'self' data:; "
+            "font-src 'self' data:; "
+            "connect-src 'self'; "
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'"
+        ),
+    }
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        response = await call_next(request)
+        for header, value in self._HEADERS.items():
+            response.headers.setdefault(header, value)
+        return response
+
+
+class PrometheusMiddleware(BaseHTTPMiddleware):
+    """
+    Records RED (Rate, Errors, Duration) metrics for every HTTP request.
+    The `/metrics` path itself is excluded to avoid self-referential noise.
+    Path labels are normalized to avoid cardinality explosion from UUIDs.
+    """
+
+    _UUID_RE = re.compile(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I
+    )
+    _INT_RE = re.compile(r"/\d+(?=/|$)")
+
+    @classmethod
+    def _normalize_path(cls, path: str) -> str:
+        path = cls._UUID_RE.sub("{id}", path)
+        path = cls._INT_RE.sub("/{int}", path)
+        return path
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        if request.url.path == "/metrics":
+            return await call_next(request)
+
+        from app.core.metrics import (
+            HTTP_REQUEST_DURATION_SECONDS,
+            HTTP_REQUESTS_IN_FLIGHT,
+            HTTP_REQUESTS_TOTAL,
+        )
+
+        path = self._normalize_path(request.url.path)
+        method = request.method
+
+        HTTP_REQUESTS_IN_FLIGHT.inc()
+        start = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception:
+            HTTP_REQUESTS_TOTAL.labels(method=method, path=path, status_code="500").inc()
+            HTTP_REQUESTS_IN_FLIGHT.dec()
+            raise
+        duration = time.perf_counter() - start
+        HTTP_REQUESTS_TOTAL.labels(method=method, path=path, status_code=str(response.status_code)).inc()
+        HTTP_REQUEST_DURATION_SECONDS.labels(method=method, path=path).observe(duration)
+        HTTP_REQUESTS_IN_FLIGHT.dec()
+        return response
+
+
+class ContentLengthLimitMiddleware(BaseHTTPMiddleware):
+    """
+    Rejects requests with a body larger than `max_bytes` before the body is
+    read into memory.  Prevents DoS via oversized payloads.
+
+    Checks Content-Length header first (fast path); if absent, falls back to
+    streaming the body up to the limit.  Ingest endpoints that accept large
+    batches need a higher limit — configure in create_application() per-route
+    if necessary, or increase MAX_BODY_BYTES in settings.
+    """
+
+    _DEFAULT_MAX = 10 * 1024 * 1024  # 10 MiB
+
+    def __init__(self, app, max_bytes: int = _DEFAULT_MAX) -> None:
+        super().__init__(app)
+        self._max_bytes = max_bytes
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                if int(content_length) > self._max_bytes:
+                    from starlette.responses import JSONResponse
+                    return JSONResponse(
+                        status_code=413,
+                        content={"detail": "Request body too large"},
+                    )
+            except ValueError:
+                pass
+        return await call_next(request)

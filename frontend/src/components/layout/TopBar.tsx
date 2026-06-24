@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { ChevronDown, Search, LogOut, Settings, Plus, Loader } from "lucide-react";
+import { ChevronDown, Search, LogOut, Settings, Plus, Loader, ClipboardList } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/stores/authStore";
@@ -7,6 +7,7 @@ import { useTenantStore } from "@/stores/tenantStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useRealtimeStore } from "@/stores/realtimeStore";
 import { NotificationBell } from "@/components/notifications/NotificationCenter";
+import { ShiftHandoffModal } from "@/components/ui/ShiftHandoffModal";
 import { fetchMyTenants, createTenant } from "@/api/tenants";
 import type { Tenant, MemberRole } from "@/types/tenant";
 import {
@@ -313,8 +314,11 @@ function TenantSelector() {
 
 export function TopBar() {
   const openCommandPalette = useUIStore((s) => s.openCommandPalette);
+  const hasRole = useTenantStore((s) => s.hasRole);
+  const [handoffOpen, setHandoffOpen] = useState(false);
 
   return (
+    <>
     <header style={{
       height: 50,
       background: "#0A0A0A",
@@ -363,6 +367,33 @@ export function TopBar() {
         {/* Divider */}
         <div style={{ width: 1, height: 16, background: "rgba(255,255,255,0.06)" }} />
 
+        {/* Shift handoff — analyst/admin only */}
+        {hasRole("analyst") && (
+          <>
+            <button
+              onClick={() => setHandoffOpen(true)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 5,
+                padding: "3px 8px",
+                borderRadius: 5,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.07)",
+                color: "#5C6373",
+                fontSize: 11,
+                cursor: "pointer",
+                transition: "all 120ms",
+              }}
+              aria-label="Open shift handoff"
+            >
+              <ClipboardList size={11} />
+              <span>Handoff</span>
+            </button>
+            <div style={{ width: 1, height: 16, background: "rgba(255,255,255,0.06)" }} />
+          </>
+        )}
+
         {/* Connection status */}
         <ConnectionStatus />
 
@@ -379,5 +410,8 @@ export function TopBar() {
         <UserMenu />
       </div>
     </header>
+
+    <ShiftHandoffModal open={handoffOpen} onClose={() => setHandoffOpen(false)} />
+    </>
   );
 }

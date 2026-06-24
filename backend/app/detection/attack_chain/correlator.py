@@ -6,22 +6,24 @@ For each built-in chain rule, checks if the new alert + recent alerts on the sam
 host satisfy the required stages within the chain's time window.
 
 When a chain fires:
+  - Acquires an atomic Redis SET NX lock on the cluster fingerprint to prevent races
   - Creates a new Alert with severity=critical and evidence listing all contributing alerts
-  - Writes a dedup key to Redis (TTL = window_secs) to prevent duplicate chain alerts
   - Never raises — failure is logged and silently swallowed so it never blocks the pipeline
 """
 from __future__ import annotations
 
-import asyncio
+import hashlib
 import re
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Awaitable
 from uuid import UUID, uuid4
 
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.metrics import ALERTS_CREATED_TOTAL
+from app.core.utils import create_task_safe
 from app.models.alert import Alert, AlertSeverity, AlertStatus
 from .builtin_chains import BUILTIN_CHAINS
 from .models import AttackChainRule, ChainMatch
@@ -35,6 +37,47 @@ logger = structlog.get_logger(__name__)
 _MAX_LOOKBACK_SECS = max(c.window_secs for c in BUILTIN_CHAINS)
 
 
+# ─── Cluster deduplication helpers ───────────────────────────────────────────
+
+def _cluster_fingerprint(alert_ids: list[UUID]) -> str:
+    """SHA-256 of sorted alert UUIDs — unique key for this exact cluster."""
+    sorted_ids = sorted(str(aid) for aid in alert_ids)
+    return hashlib.sha256("|".join(sorted_ids).encode()).hexdigest()[:32]
+
+
+async def _create_investigation_with_lock(
+    lock_key: str,
+    ttl_secs: int,
+    factory: Callable[[], Awaitable[None]],
+) -> bool:
+    """
+    Acquire a Redis SET NX distributed lock, then call factory() if we won.
+    Uses stream Redis for the lock so it is isolated from rate-limiting Redis.
+    Returns True if the lock was acquired and factory() was called.
+    """
+    from app.core.redis import get_stream_redis
+    redis = None
+    try:
+        redis = await get_stream_redis()
+        acquired = await redis.set(lock_key, "1", ex=ttl_secs, nx=True)
+        if not acquired:
+            return False
+        try:
+            await factory()
+        except Exception as factory_exc:
+            # factory() failed — release the lock immediately so the next replica
+            # can retry rather than waiting for the TTL to expire.
+            try:
+                await redis.delete(lock_key)
+            except Exception:
+                pass
+            raise factory_exc
+        return True
+    except Exception as exc:
+        logger.warning("chain_lock_failed", lock_key=lock_key, error=str(exc))
+        return False
+
+
 # ─── Public entry point ───────────────────────────────────────────────────────
 
 async def check_attack_chains(
@@ -46,7 +89,7 @@ async def check_attack_chains(
     Non-blocking entry point called from DetectionWorker after alert commit.
     Spawns an isolated task so any failure never blocks the detection pipeline.
     """
-    asyncio.create_task(
+    task = create_task_safe(
         _run_chain_check(alert, tenant_id, redis),
         name=f"chain_check_{alert.id}",
     )
@@ -72,19 +115,34 @@ async def _run_chain_check(alert: Alert, tenant_id: UUID, redis: "Redis") -> Non
                 if match is None:
                     continue
 
-                dedup_key = _dedup_key(tenant_id, alert.source_host, chain.name)
-                already_fired = await redis.exists(dedup_key)
-                if already_fired:
+                # Build a fingerprint from the exact set of contributing alerts so
+                # that two concurrent workers processing the same event never create
+                # duplicate chain alerts (SET NX is atomic; exists+setex is not).
+                fingerprint = _cluster_fingerprint(match.matched_alert_ids)
+                lock_key = f"chain_lock:{tenant_id}:{fingerprint}"
+
+                chain_alert_ref: list[Alert] = []
+
+                async def _create_alert() -> None:
+                    ca = _build_chain_alert(match, tenant_id)
+                    db.add(ca)
+                    await db.flush()
+                    await db.commit()
+                    ALERTS_CREATED_TOTAL.labels(
+                        tenant_id=str(tenant_id),
+                        severity=ca.severity.value,
+                    ).inc()
+                    chain_alert_ref.append(ca)
+
+                fired = await _create_investigation_with_lock(
+                    lock_key,
+                    chain.window_secs,
+                    _create_alert,
+                )
+                if not fired:
                     continue
 
-                chain_alert = _build_chain_alert(match, tenant_id)
-                db.add(chain_alert)
-                await db.flush()
-                await db.commit()
-
-                # Dedup lock — prevents duplicate chain alerts within the window
-                await redis.setex(dedup_key, chain.window_secs, "1")
-
+                chain_alert = chain_alert_ref[0]
                 logger.warning(
                     "attack_chain_fired",
                     chain=chain.name,
@@ -223,11 +281,6 @@ def _build_chain_alert(match: ChainMatch, tenant_id: UUID) -> Alert:
     )
 
 
-def _dedup_key(tenant_id: UUID, host: str, chain_name: str) -> str:
-    safe_chain = chain_name.lower().replace(" ", "_")[:60]
-    safe_host  = host.replace(".", "_").replace(":", "_")[:40]
-    return f"chain_dedup:{tenant_id}:{safe_host}:{safe_chain}"
-
 
 def _notify_chain_alert(alert: Alert, tenant_id: UUID) -> None:
     """Fire-and-forget WebSocket notification for chain alerts."""
@@ -252,7 +305,11 @@ def _notify_chain_alert(alert: Alert, tenant_id: UUID) -> None:
                 },
             )
             await publish_to_tenant_ws(client, stream_names.ALERTS_PUBSUB_CHANNEL, msg.to_json())
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "chain_alert_ws_notify_failed",
+                alert_id=str(alert.id),
+                error=str(exc),
+            )
 
-    asyncio.create_task(_publish())
+    create_task_safe(_publish(), name=f"chain_ws_notify_{alert.id}")

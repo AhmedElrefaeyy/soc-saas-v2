@@ -88,6 +88,23 @@ async def ingest_batch(
     tenant_client = TenantRedisClient(
         redis_typed, str(agent.tenant_id), stream_names.SUBSYSTEM
     )
+
+    # Per-tenant ingest rate limit — prevents a single noisy tenant from
+    # exhausting pipeline capacity and starving other tenants.
+    from app.core.config import settings as _settings
+    from app.core.exceptions import RateLimitError as _RateLimitError
+    _per_tenant_limit = _settings.RATE_LIMIT_INGEST_EVENTS
+    _allowed, _remaining = await tenant_client.check_rate_limit(
+        f"ingest_batch:{agent.id}",
+        limit=_per_tenant_limit,
+        window_secs=60,
+    )
+    if not _allowed:
+        raise _RateLimitError(
+            f"Ingest rate limit exceeded — tenant allows {_per_tenant_limit} events/min",
+            retry_after=60,
+        )
+
     result = await IngestionService.ingest_batch(db, tenant_client, agent, payload)
     await db.commit()
     return APIResponse.ok(result)

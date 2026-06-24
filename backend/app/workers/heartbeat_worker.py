@@ -7,6 +7,8 @@ import structlog
 from sqlalchemy import update
 
 from app.core.database import database_manager
+from app.core.metrics import AGENTS_OFFLINE_TOTAL
+from app.core.utils import create_task_safe
 from app.models.agent import Agent, AgentStatus
 
 logger = structlog.get_logger(__name__)
@@ -90,6 +92,7 @@ class HeartbeatWorker:
         if rows:
             from app.services.notification_service import notify_agent_offline_email
             for row in rows:
+                AGENTS_OFFLINE_TOTAL.labels(tenant_id=str(row.tenant_id)).inc()
                 logger.info(
                     "agent_marked_offline",
                     agent_id=str(row.id),
@@ -101,9 +104,9 @@ class HeartbeatWorker:
                     if row.last_seen_at
                     else "Unknown"
                 )
-                asyncio.create_task(notify_agent_offline_email(
+                create_task_safe(notify_agent_offline_email(
                     agent_id=str(row.id),
                     hostname=row.hostname or "Unknown",
                     tenant_id=row.tenant_id,
                     last_seen=last_seen,
-                ))
+                ), name=f"notify_agent_offline_{row.id}")

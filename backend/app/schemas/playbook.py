@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ── Template schemas ──────────────────────────────────────────────────────────
@@ -55,6 +55,22 @@ class CreateTemplateRequest(BaseModel):
     technique: str | None = Field(default=None, max_length=128)
     category: str | None = Field(default=None, max_length=128)
     steps: list[dict[str, Any]] = Field(default_factory=list)
+
+    @field_validator("steps")
+    @classmethod
+    def validate_step_action_types(cls, steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        from app.models.playbook_action_types import VALID_ACTION_TYPE_VALUES, PRIVILEGED_ACTION_TYPES, PlaybookActionType
+        for i, step in enumerate(steps):
+            action_type = step.get("action_type")
+            if action_type is not None:
+                if action_type not in VALID_ACTION_TYPE_VALUES:
+                    raise ValueError(
+                        f"Step {i + 1}: invalid action_type '{action_type}'. "
+                        f"Allowed values: {sorted(VALID_ACTION_TYPE_VALUES)}"
+                    )
+                if PlaybookActionType(action_type) in PRIVILEGED_ACTION_TYPES:
+                    step["requires_human_approval"] = True
+        return steps
 
 
 # ── Playbook schemas ──────────────────────────────────────────────────────────

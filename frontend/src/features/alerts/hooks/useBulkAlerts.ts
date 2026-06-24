@@ -1,22 +1,24 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { bulkUpdateAlerts } from "@/services/alertsApi";
 import { alertsKeys } from "./useAlerts";
+import { useTenantStore } from "@/stores/tenantStore";
 import type { Alert, AlertListResponse, BulkActionPayload } from "@/features/alerts/types";
 
 export function useBulkAlerts() {
   const qc = useQueryClient();
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? ""
 
   return useMutation({
     mutationFn: (payload: BulkActionPayload) => bulkUpdateAlerts(payload),
 
     onMutate: async (payload) => {
-      // Cancel any in-flight list queries
-      await qc.cancelQueries({ queryKey: alertsKeys.lists() });
+      // Cancel any in-flight list queries for this tenant
+      await qc.cancelQueries({ queryKey: alertsKeys.lists(tenantId) });
 
       // Snapshot all cached list pages for rollback
       const snapshots: Array<{ key: unknown[]; data: AlertListResponse }> = [];
 
-      qc.getQueriesData<AlertListResponse>({ queryKey: alertsKeys.lists() }).forEach(
+      qc.getQueriesData<AlertListResponse>({ queryKey: alertsKeys.lists(tenantId) }).forEach(
         ([key, data]) => {
           if (data) snapshots.push({ key: key as unknown[], data });
         }
@@ -24,7 +26,7 @@ export function useBulkAlerts() {
 
       // Optimistically apply the mutation to every cached list
       qc.setQueriesData<AlertListResponse>(
-        { queryKey: alertsKeys.lists() },
+        { queryKey: alertsKeys.lists(tenantId) },
         (prev) => {
           if (!prev) return prev;
           const updated = applyOptimisticUpdate(prev.items, payload);
@@ -45,7 +47,7 @@ export function useBulkAlerts() {
     },
 
     onSettled: () => {
-      void qc.invalidateQueries({ queryKey: alertsKeys.lists() });
+      void qc.invalidateQueries({ queryKey: alertsKeys.lists(tenantId) });
     },
   });
 }

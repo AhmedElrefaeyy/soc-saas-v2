@@ -11,6 +11,7 @@ Rules:
   - List returns pinned notes first, then by created_at desc.
 """
 
+import re as _re
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -24,6 +25,21 @@ from app.models.analyst import InvestigationNote
 from app.analyst.schemas import NoteCreate, NoteUpdate
 
 logger = structlog.get_logger(__name__)
+
+
+def _sanitize_note_content(content: str) -> str:
+    """Strip HTML and script injection from note text. Prevents stored XSS."""
+    # Remove <script>...</script> blocks and their content entirely
+    content = _re.sub(
+        r'<script[^>]*>.*?</script>',
+        '',
+        content,
+        flags=_re.IGNORECASE | _re.DOTALL,
+    )
+    # Remove all remaining HTML tags (keep text content)
+    content = _re.sub(r'<[^>]+>', '', content)
+    # Normalize whitespace
+    return content.strip()
 
 
 class NoteService:
@@ -40,7 +56,7 @@ class NoteService:
             tenant_id=tenant_id,
             investigation_id=investigation_id,
             analyst_id=analyst_id,
-            content=payload.content,
+            content=_sanitize_note_content(payload.content),
             pinned=payload.pinned,
         )
         db.add(note)
@@ -94,7 +110,7 @@ class NoteService:
             raise ForbiddenError("Only the note author can edit this note")
 
         if payload.content is not None:
-            note.content = payload.content
+            note.content = _sanitize_note_content(payload.content)
         if payload.pinned is not None:
             note.pinned = payload.pinned
 

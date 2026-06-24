@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import Boolean, String, Text, TIMESTAMP
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB as PG_JSONB
 
 from app.models.base import Base, TimestampMixin, SoftDeleteMixin
 
@@ -38,6 +39,14 @@ class User(Base, TimestampMixin, SoftDeleteMixin):
     # ─── Password reset ───────────────────────────────────────────────────────
     password_reset_token: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     password_reset_sent_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+
+    # ─── MFA / TOTP ───────────────────────────────────────────────────────────
+    # Stored Fernet-encrypted; never stored in plaintext.
+    totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True), nullable=True)
+    # List of SHA-256-hashed backup codes; consumed codes removed on use.
+    mfa_backup_codes: Mapped[list[Any] | None] = mapped_column(PG_JSONB, nullable=True)
 
     # ─── Extended profile ─────────────────────────────────────────────────────
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)

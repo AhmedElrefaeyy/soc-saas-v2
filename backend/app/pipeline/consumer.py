@@ -6,6 +6,7 @@ from typing import Any, AsyncGenerator, Callable, Awaitable
 import orjson
 import structlog
 
+from app.core.metrics import WORKER_STREAM_LAG
 from app.core.redis import TenantRedisClient
 from app.pipeline import stream_names
 
@@ -39,11 +40,13 @@ class StreamConsumer:
         stream: str,
         group: str,
         consumer_name: str,
+        tenant_id: str = "",
     ) -> None:
         self._client = client
         self._stream = stream
         self._group = group
         self._consumer_name = consumer_name
+        self._tenant_id = tenant_id
 
     async def run(
         self,
@@ -59,6 +62,7 @@ class StreamConsumer:
         while not stop_event.is_set():
             await self._reclaim_stuck(handler)
             await self._poll(handler, stop_event)
+            await self._update_lag_metric()
 
         logger.info("stream_consumer_stopped", stream=self._stream)
 
@@ -112,6 +116,16 @@ class StreamConsumer:
                 msg_id=msg_id,
             )
             await self._process(msg_id, fields, handler)
+
+    async def _update_lag_metric(self) -> None:
+        if not self._tenant_id:
+            return
+        pending = await self._client.xpending_count(self._stream, self._group)
+        WORKER_STREAM_LAG.labels(
+            tenant_id=self._tenant_id,
+            stream=self._stream,
+            group=self._group,
+        ).set(pending)
 
     async def _process(
         self,

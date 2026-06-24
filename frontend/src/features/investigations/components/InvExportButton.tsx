@@ -1,0 +1,187 @@
+import { useState } from "react";
+import { Download, Loader2 } from "lucide-react";
+import jsPDF from "jspdf";
+import type { InvestigationDetail } from "../hooks/useInvestigationDetail";
+
+// ─── Color palette for PDF ────────────────────────────────────────────────────
+
+const C = {
+  bg:       [10, 10, 10] as [number, number, number],
+  card:     [17, 17, 17] as [number, number, number],
+  accent:   [59, 130, 246] as [number, number, number],
+  text:     [245, 247, 250] as [number, number, number],
+  muted:    [92, 99, 115] as [number, number, number],
+  critical: [239, 68, 68] as [number, number, number],
+  high:     [249, 115, 22] as [number, number, number],
+  medium:   [245, 158, 11] as [number, number, number],
+};
+
+function scoreColor(s: number): [number, number, number] {
+  return s >= 80 ? C.critical : s >= 60 ? C.high : s >= 30 ? C.medium : [16, 185, 129];
+}
+
+// ─── PDF generation ───────────────────────────────────────────────────────────
+
+function caseId(id: string): string {
+  return `INC-${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+}
+
+async function generatePDF(inv: InvestigationDetail): Promise<void> {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pw = doc.internal.pageSize.getWidth();
+  const ph = doc.internal.pageSize.getHeight();
+  let y = 0;
+
+  const fillPage = () => {
+    doc.setFillColor(...C.bg);
+    doc.rect(0, 0, pw, ph, "F");
+  };
+
+  const newPage = () => {
+    doc.addPage();
+    fillPage();
+    y = 15;
+  };
+
+  const checkPage = (needed: number) => {
+    if (y + needed > ph - 15) newPage();
+  };
+
+  const heading = (text: string, size = 10) => {
+    checkPage(8);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(size);
+    doc.setTextColor(...C.accent);
+    doc.text(text, 15, y);
+    y += size * 0.5 + 3;
+  };
+
+  const body = (text: string, indent = 15) => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(...C.text);
+    const lines = doc.splitTextToSize(text, pw - indent - 15);
+    for (const line of (lines as string[])) {
+      checkPage(5);
+      doc.text(line, indent, y);
+      y += 4.5;
+    }
+    y += 1;
+  };
+
+  const muted = (text: string, indent = 15) => {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(...C.muted);
+    doc.text(text, indent, y);
+    y += 4;
+  };
+
+  // ── Cover page ───────────────────────────────────────────────────────────────
+  fillPage();
+  y = 25;
+
+  // Header bar
+  doc.setFillColor(...C.accent);
+  doc.rect(0, 0, pw, 8, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(7);
+  doc.setTextColor(255, 255, 255);
+  doc.text("NEURASHIELD — SECURITY INCIDENT REPORT", 15, 5.5);
+
+  // Case ID
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.setTextColor(...scoreColor(inv.threat_score));
+  doc.text(caseId(inv.investigation_id), 15, y);
+  y += 10;
+
+  // Title
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(14);
+  doc.setTextColor(...C.text);
+  const titleLines = doc.splitTextToSize(inv.title ?? "Unnamed Investigation", pw - 30) as string[];
+  titleLines.forEach((line: string) => { doc.text(line, 15, y); y += 7; });
+  y += 3;
+
+  // Metadata grid
+  const meta = [
+    ["Threat Score", `${inv.threat_score} — ${inv.threat_score >= 80 ? "CRITICAL" : inv.threat_score >= 60 ? "HIGH" : inv.threat_score >= 30 ? "MEDIUM" : "LOW"}`],
+    ["Status",       inv.status],
+    ["Created",      new Date(inv.created_at).toLocaleString()],
+    ["Export Date",  new Date().toLocaleString()],
+    ["Assigned To",  inv.assigned_to ?? "Unassigned"],
+  ];
+  meta.forEach(([label, value]) => {
+    doc.setFont("helvetica", "bold"); doc.setFontSize(7); doc.setTextColor(...C.muted);
+    doc.text(label.toUpperCase(), 15, y);
+    doc.setFont("helvetica", "normal"); doc.setTextColor(...C.text);
+    doc.text(value, 60, y);
+    y += 5;
+  });
+
+  // ── Content pages ─────────────────────────────────────────────────────────────
+  newPage();
+
+  if (inv.executive_summary) {
+    heading("EXECUTIVE SUMMARY", 11);
+    body(inv.executive_summary);
+    y += 4;
+  }
+
+  if (inv.technical_summary) {
+    heading("TECHNICAL SUMMARY", 11);
+    body(inv.technical_summary);
+    y += 4;
+  }
+
+  const progression = Array.isArray(inv.attack_progression) ? (inv.attack_progression as string[]) : [];
+  if (progression.length) {
+    heading("ATTACK PROGRESSION", 11);
+    progression.forEach((step, i) => { body(`${i + 1}. ${step}`, 20); });
+    y += 4;
+  }
+
+  if (inv.ai_analysis_json) {
+    try {
+      const ai = inv.ai_analysis_json as unknown as Record<string, unknown>;
+      if (ai.recommended_actions && Array.isArray(ai.recommended_actions)) {
+        heading("RECOMMENDED ACTIONS", 11);
+        (ai.recommended_actions as string[]).forEach((action, i) => { body(`${i + 1}. ${action}`, 20); });
+        y += 4;
+      }
+    } catch { /* skip */ }
+  }
+
+  muted(`Generated by NEURASHIELD AI-SOC Platform — ${new Date().toISOString()}`);
+
+  doc.save(`${caseId(inv.investigation_id)}-report.pdf`);
+}
+
+// ─── InvExportButton ──────────────────────────────────────────────────────────
+
+interface Props {
+  inv: InvestigationDetail;
+}
+
+export function InvExportButton({ inv }: Props) {
+  const [loading, setLoading] = useState(false);
+
+  const handleExport = async () => {
+    setLoading(true);
+    try { await generatePDF(inv); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <button
+      onClick={() => void handleExport()}
+      disabled={loading}
+      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary border border-border hover:border-border-hover transition-all"
+      aria-label="Export investigation as PDF"
+    >
+      {loading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+      Export PDF
+    </button>
+  );
+}

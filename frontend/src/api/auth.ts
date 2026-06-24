@@ -1,6 +1,15 @@
 import { apiPost, apiGet } from "@/api/client";
 import type { LoginRequest, RegisterRequest, TokenPair, User } from "@/types/auth";
 
+export interface MFASetupResponse {
+  provisioning_uri: string;
+  encrypted_secret: string;
+}
+
+export interface MFABackupCodesResponse {
+  backup_codes: string[];
+}
+
 export const authApi = {
   register: (data: RegisterRequest): Promise<TokenPair> =>
     apiPost<TokenPair>("/auth/register", data),
@@ -30,5 +39,15 @@ export const authApi = {
     apiPost<void>("/auth/resend-verification", { email }),
 
   verifyEmail: (token: string): Promise<void> =>
-    apiGet<void>(`/auth/verify-email?token=${encodeURIComponent(token)}`),
+    apiGet<void>('/auth/verify-email', { token }),
+
+  // MFA endpoints
+  mfaSetup: (): Promise<MFASetupResponse> =>
+    apiPost<MFASetupResponse>("/auth/mfa/setup"),
+
+  mfaVerify: (encrypted_secret: string, code: string): Promise<MFABackupCodesResponse> =>
+    apiPost<MFABackupCodesResponse>("/auth/mfa/verify", { encrypted_secret, code }),
+
+  mfaDisable: (password: string, code: string): Promise<void> =>
+    apiPost<void>("/auth/mfa/disable", { password, code }),
 };

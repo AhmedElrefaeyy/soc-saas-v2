@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from app.ai.llm_manager import get_llm_manager
+from app.ai.prompt_guard import sanitize_field as _guard_sanitize_field
 
 if TYPE_CHECKING:
     from app.normalization.models import NormalizedEvent
@@ -19,35 +20,12 @@ log = structlog.get_logger(__name__)
 VALID_SEVERITIES = {"benign", "suspicious", "malicious", "unknown"}
 VALID_ACTIONS    = {"Monitor", "Investigate", "Contain", "Escalate"}
 
-# ─── Prompt injection sanitizer ───────────────────────────────────────────────
-
-_INJECTION_PATTERNS = [
-    r"ignore\s+previous\s+instructions?",
-    r"system\s*:",
-    r"assistant\s*:",
-    r"<\s*system\s*>",
-    r"##\s*system",
-    r"you\s+are\s+now",
-    r"new\s+instructions?",
-    r"forget\s+everything",
-]
-_INJECTION_RE = re.compile(
-    "|".join(_INJECTION_PATTERNS), flags=re.IGNORECASE
-)
-
 _IP_RE = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$')
 
 
 def _sanitize_field(value: str | None, max_len: int = 200) -> str | None:
-    """Strip prompt injection attempts from event field values."""
-    if value is None:
-        return None
-    value = value[:max_len]
-    # Remove newlines that could break prompt structure
-    value = value.replace("\n", " ").replace("\r", " ")
-    # Remove common injection patterns
-    value = _INJECTION_RE.sub("[REDACTED]", value)
-    return value.strip() or None
+    """Delegate to the centralized prompt injection guard."""
+    return _guard_sanitize_field(value, max_len=max_len)
 
 
 def _validate_ip(ip: str | None) -> str | None:

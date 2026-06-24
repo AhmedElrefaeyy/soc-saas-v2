@@ -211,7 +211,7 @@ async def generate_playbook(
     )
     await db.commit()
 
-    return APIResponse.ok(await _load_playbook_response(db, playbook.id))
+    return APIResponse.ok(await _load_playbook_response(db, playbook.id, tenant_id=m.tenant_id))
 
 
 @router.get("", response_model=PaginatedResponse[PlaybookResponse])
@@ -350,17 +350,39 @@ async def _require_playbook_response(
     playbook = result.scalar_one_or_none()
     if playbook is None:
         raise NotFoundError(f"Playbook {playbook_id} not found")
-    return await _load_playbook_response(db, playbook_id)
+    return await _load_playbook_response(db, playbook_id, tenant_id=tenant_id)
 
 
-async def _load_playbook_response(db: AsyncSession, playbook_id: UUID) -> PlaybookResponse:
+async def _load_playbook_response(
+    db: AsyncSession,
+    playbook_id: UUID,
+    tenant_id: UUID,
+) -> PlaybookResponse:
+    """
+    Load a full PlaybookResponse including ordered steps.
+    tenant_id is REQUIRED — both the Playbook and its steps are scoped to the
+    calling tenant so cross-tenant access is structurally impossible.
+    """
     result = await db.execute(
-        select(Playbook).where(Playbook.id == playbook_id)
+        select(Playbook).where(
+            Playbook.id == playbook_id,
+            Playbook.tenant_id == tenant_id,
+            Playbook.deleted_at.is_(None),
+        )
     )
-    playbook = result.scalar_one()
+    playbook = result.scalar_one_or_none()
+    if playbook is None:
+        raise NotFoundError(f"Playbook {playbook_id} not found")
+
+    # Join through Playbook to enforce tenant ownership at the steps level too,
+    # even though PlaybookStep has no tenant_id column.
     steps_result = await db.execute(
         select(PlaybookStep)
-        .where(PlaybookStep.playbook_id == playbook_id)
+        .join(Playbook, PlaybookStep.playbook_id == Playbook.id)
+        .where(
+            PlaybookStep.playbook_id == playbook_id,
+            Playbook.tenant_id == tenant_id,
+        )
         .order_by(PlaybookStep.step_order)
     )
     steps = list(steps_result.scalars().all())

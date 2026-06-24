@@ -48,6 +48,7 @@ class NormalizationWorker:
             stream_names.RAW_EVENTS,
             stream_names.GROUP_NORMALIZE,
             self._consumer_name,
+            tenant_id=self._tenant_id,
         )
 
         await consumer.run(self._handle_message, stop_event)
@@ -156,9 +157,14 @@ class NormalizationWorker:
                 extraction = extract_entities(normalized, event_db_id=str(event.id))
                 enrich_normalized_payload(norm_payload, extraction)
 
-                await publisher.publish_normalized_event(norm_payload)
-
+                # Commit to DB first — event must be persisted before it enters
+                # the normalized stream.  If publish fails after commit the raw
+                # message stays unACKed in the PEL and is reclaimed after
+                # AUTOCLAIM_IDLE_MS; the normalization re-runs but the DB write
+                # is idempotent (stream_id unique constraint) so no duplicate row.
                 await db.commit()
+
+                await publisher.publish_normalized_event(norm_payload)
 
             except Exception:
                 # Explicit rollback ensures the DB session is clean even if the

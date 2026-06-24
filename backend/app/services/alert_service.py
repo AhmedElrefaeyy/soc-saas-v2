@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 import structlog
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
+from app.core.utils import create_task_safe
 from app.models.alert import Alert, AlertSeverity, AlertStatus
 from app.schemas.alert import AlertFilterParams, AlertUpdateRequest
 
@@ -17,6 +18,15 @@ logger = structlog.get_logger(__name__)
 
 # TTL for per-tenant per-flag FP counters (30-day rolling window)
 _FP_COUNTER_TTL = 86400 * 30
+
+
+async def _invalidate_dashboard_cache_async(tenant_id: str) -> None:
+    """Delete cached dashboard KPIs for this tenant after an alert write."""
+    try:
+        from app.api.v1.dashboard import _invalidate_dashboard_cache
+        await _invalidate_dashboard_cache(tenant_id)
+    except Exception:
+        pass
 
 
 async def _record_fp_signal_async(tenant_id: str, evidence: dict) -> None:
@@ -106,10 +116,16 @@ class AlertService:
             try:
                 ts_str, id_str = _decode_cursor(params.cursor)
                 ts = datetime.fromisoformat(ts_str)
+                # Keyset pagination for ORDER BY (created_at DESC, id DESC):
+                # "next page" means rows that come AFTER the cursor in descending order,
+                # i.e. strictly older timestamp OR same timestamp with a lower UUID.
                 conditions.append(
-                    and_(
-                        Alert.created_at <= ts,
-                        Alert.id < UUID(id_str),
+                    or_(
+                        Alert.created_at < ts,
+                        and_(
+                            Alert.created_at == ts,
+                            Alert.id < UUID(id_str),
+                        ),
                     )
                 )
             except Exception:
@@ -163,8 +179,9 @@ class AlertService:
 
             if new_status == AlertStatus.FALSE_POSITIVE:
                 # Record UEBA flags as FP signals for weight adjustment (non-blocking)
-                asyncio.create_task(
-                    _record_fp_signal_async(str(tenant_id), alert.evidence or {})
+                create_task_safe(
+                    _record_fp_signal_async(str(tenant_id), alert.evidence or {}),
+                    name="record_fp_signal",
                 )
 
             alert.status = new_status
@@ -173,9 +190,25 @@ class AlertService:
             alert.notes = payload.notes
 
         if payload.assignee_id is not None:
+            # Ensure the assignee is a member of the same tenant.
+            from sqlalchemy import exists as _exists
+            from app.models.tenant_member import TenantMember
+            is_member = await db.scalar(
+                select(_exists().where(
+                    TenantMember.user_id == payload.assignee_id,
+                    TenantMember.tenant_id == tenant_id,
+                    TenantMember.deleted_at.is_(None),
+                ))
+            )
+            if not is_member:
+                raise ValidationError("Assignee is not a member of this tenant")
             alert.assignee_id = payload.assignee_id
 
         await db.flush()
+        create_task_safe(
+            _invalidate_dashboard_cache_async(str(tenant_id)),
+            name="invalidate_dashboard_cache",
+        )
         logger.info(
             "alert_updated",
             alert_id=str(alert_id),

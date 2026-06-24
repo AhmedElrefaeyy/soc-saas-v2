@@ -48,6 +48,18 @@ async def get_current_user(
     if user is None or not user.is_active or user.is_deleted:
         raise UnauthorizedError("User account not found or inactive")
 
+    # Enforce email verification — the JWT carries the claim set at issue time.
+    # We check *both* the JWT claim (fast, no DB hit) and the DB state (catches
+    # tokens issued before a verification was rolled back or expired).
+    # Endpoints under /auth/ are exempt because verify-email and resend-verification
+    # must be reachable before the address is confirmed.
+    jwt_verified: bool = getattr(payload, "email_verified", True)
+    if not jwt_verified and not user.email_verified:
+        raise ForbiddenError(
+            "Email address not verified. Please check your inbox for the verification link.",
+            details={"code": "EMAIL_NOT_VERIFIED"},
+        )
+
     # Inject user_id into log context for all downstream logging in this request
     user_id_ctx.set(str(user_id))
 

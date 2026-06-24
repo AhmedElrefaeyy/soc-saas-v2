@@ -211,18 +211,19 @@ async def get_investigation(
     detail = await AnalystWorkspaceService.get_investigation_detail(
         db, m.tenant_id, investigation_id, m.user_id
     )
-    await db.commit()
     return APIResponse.ok(detail)
 
 
 # ─── Related alerts ──────────────────────────────────────────────────────────
 
-@router.get("/{investigation_id}/related-alerts", response_model=APIResponse[list])
+@router.get("/{investigation_id}/related-alerts", response_model=APIResponse[dict])
 async def get_related_alerts(
     investigation_id: str,
     member: Annotated[object, require_permission(Permission.INVESTIGATIONS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> APIResponse[list]:
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+) -> APIResponse[dict]:
     """
     Return alerts linked to an investigation via triggering_alert_ids.
     Includes soft-deleted alerts (they show in investigation context but not in alerts list).
@@ -248,16 +249,24 @@ async def get_related_alerts(
 
     alert_ids: list[str] = inv.triggering_alert_ids or []
     if not alert_ids:
-        return APIResponse.ok([])
+        return APIResponse.ok({"alerts": [], "total": 0, "offset": offset, "limit": limit, "has_more": False})
 
     try:
         alert_uuids = [UUID(aid) for aid in alert_ids]
     except ValueError:
-        return APIResponse.ok([])
+        return APIResponse.ok({"alerts": [], "total": 0, "offset": offset, "limit": limit, "has_more": False})
+
+    total_count = len(alert_uuids)
+    paged_uuids = alert_uuids[offset : offset + limit]
+    if not paged_uuids:
+        return APIResponse.ok({
+            "alerts": [], "total": total_count,
+            "offset": offset, "limit": limit, "has_more": False,
+        })
 
     result = await db.execute(
         select(Alert).where(
-            Alert.id.in_(alert_uuids),
+            Alert.id.in_(paged_uuids),
             Alert.tenant_id == m.tenant_id,
         )
     )
@@ -286,7 +295,13 @@ async def get_related_alerts(
             "archived":      a.deleted_at is not None,
         }
 
-    return APIResponse.ok([_serialize(a) for a in alerts])
+    return APIResponse.ok({
+        "alerts": [_serialize(a) for a in alerts],
+        "total": total_count,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total_count,
+    })
 
 
 # ─── AI Analysis ─────────────────────────────────────────────────────────────
@@ -354,7 +369,6 @@ async def get_timeline(
     result = await AnalystWorkspaceService.get_timeline(
         db, m.tenant_id, investigation_id, m.user_id, filters
     )
-    await db.commit()
     return APIResponse.ok(result)
 
 
@@ -449,7 +463,6 @@ async def get_graph(
     result = await AnalystWorkspaceService.get_graph(
         db, m.tenant_id, investigation_id, m.user_id, filters
     )
-    await db.commit()
     return APIResponse.ok(result)
 
 

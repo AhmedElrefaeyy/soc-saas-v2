@@ -47,12 +47,26 @@ class RedisManager:
                 break
             except Exception:
                 break
-        try:
-            await self._client.config_set("stop-writes-on-bgsave-error", "no")
-            await self._client.config_set("save", "")
-            logger.info("redis_rdb_persistence_disabled")
-        except Exception as cfg_exc:
-            logger.warning("redis_config_set_skipped", error=str(cfg_exc))
+
+        # Disable RDB persistence only in non-production environments to work
+        # around the Railway managed-Redis MISCONF issue. In production Redis
+        # persistence MUST remain enabled so rate-limit counters, dedup keys,
+        # and UEBA baselines survive pod restarts.
+        if not settings.is_production:
+            try:
+                await self._client.config_set("stop-writes-on-bgsave-error", "no")
+                await self._client.config_set("save", "")
+                logger.info("redis_rdb_persistence_disabled_dev_only")
+            except Exception as cfg_exc:
+                logger.warning("redis_config_set_skipped", error=str(cfg_exc))
+        else:
+            # In production, ensure stop-writes-on-bgsave-error is on so we
+            # notice disk full conditions rather than silently losing data.
+            try:
+                await self._client.config_set("stop-writes-on-bgsave-error", "yes")
+            except Exception as cfg_exc:
+                logger.warning("redis_config_set_skipped", error=str(cfg_exc))
+
         await self._client.ping()
 
     async def close(self) -> None:
@@ -101,6 +115,30 @@ async def get_redis_optional() -> "Redis[str] | None":
         return redis_manager.get_client()
     except Exception:
         return None
+
+
+# ─── Stream-dedicated Redis client (separate DB for worker event streams) ───────
+_stream_redis_manager = RedisManager()
+
+
+async def initialize_stream_redis() -> None:
+    """Initialize the stream Redis connection using REDIS_STREAM_URL."""
+    pool = ConnectionPool.from_url(
+        settings.REDIS_STREAM_URL,
+        max_connections=settings.REDIS_MAX_CONNECTIONS,
+        decode_responses=True,
+    )
+    _stream_redis_manager._pool = pool
+    _stream_redis_manager._client = Redis(connection_pool=pool)
+    logger.info("stream_redis_initialized", url=settings.REDIS_STREAM_URL)
+
+
+async def get_stream_redis() -> "Redis[str]":
+    """Returns stream-dedicated Redis. Falls back to app Redis if not initialized."""
+    try:
+        return _stream_redis_manager.get_client()
+    except RuntimeError:
+        return redis_manager.get_client()
 
 
 # ─── Tenant-scoped Redis client ───────────────────────────────────────────────
@@ -237,6 +275,14 @@ class TenantRedisClient:
             self._key(stream), group, consumer, min_idle_time, start_id, count=count
         )
 
+    async def xpending_count(self, stream: str, group: str) -> int:
+        """Return total number of pending (delivered but unACKed) messages in the group."""
+        try:
+            summary = await self._redis.xpending(self._key(stream), group)
+            return int(summary.get("pending", 0)) if isinstance(summary, dict) else int(summary[0])
+        except Exception:
+            return 0
+
     # ─── Rate limiting ────────────────────────────────────────────────────────
 
     async def check_rate_limit(self, resource: str, limit: int, window_secs: int) -> tuple[bool, int]:
@@ -309,5 +355,73 @@ class TenantRedisClient:
 
     # ─── Pipeline ─────────────────────────────────────────────────────────────
 
-    def pipeline(self) -> Pipeline:  # type: ignore[type-arg]
-        return self._redis.pipeline()
+    def pipeline(self) -> "TenantPipeline":
+        return TenantPipeline(self._redis.pipeline(), self._prefix)
+
+
+class TenantPipeline:
+    """
+    Wraps a Redis pipeline so all key arguments are automatically prefixed
+    with the tenant namespace, matching the behaviour of TenantRedisClient.
+
+    Only the operations actually used in production code are implemented;
+    adding new ones follows the same pattern: apply self._key() to every key
+    argument before delegating to the underlying pipeline.
+    """
+
+    def __init__(self, pipe: Pipeline, prefix: str) -> None:  # type: ignore[type-arg]
+        self._pipe = pipe
+        self._prefix = prefix
+
+    def _key(self, key: str) -> str:
+        return f"{self._prefix}{key}"
+
+    def set(self, key: str, value: Any, ex: int | None = None, nx: bool = False) -> "TenantPipeline":
+        self._pipe.set(self._key(key), value, ex=ex, nx=nx)
+        return self
+
+    def get(self, key: str) -> "TenantPipeline":
+        self._pipe.get(self._key(key))
+        return self
+
+    def delete(self, *keys: str) -> "TenantPipeline":
+        self._pipe.delete(*[self._key(k) for k in keys])
+        return self
+
+    def incr(self, key: str) -> "TenantPipeline":
+        self._pipe.incr(self._key(key))
+        return self
+
+    def expire(self, key: str, seconds: int) -> "TenantPipeline":
+        self._pipe.expire(self._key(key), seconds)
+        return self
+
+    def hset(self, name: str, mapping: dict[str, Any]) -> "TenantPipeline":
+        self._pipe.hset(self._key(name), mapping=mapping)
+        return self
+
+    def hgetall(self, name: str) -> "TenantPipeline":
+        self._pipe.hgetall(self._key(name))
+        return self
+
+    def zadd(self, key: str, mapping: dict[str, float]) -> "TenantPipeline":
+        self._pipe.zadd(self._key(key), mapping)  # type: ignore[arg-type]
+        return self
+
+    def zrangebyscore(self, key: str, min: float | str, max: float | str) -> "TenantPipeline":
+        self._pipe.zrangebyscore(self._key(key), min, max)
+        return self
+
+    def zremrangebyscore(self, key: str, min: float | str, max: float | str) -> "TenantPipeline":
+        self._pipe.zremrangebyscore(self._key(key), min, max)
+        return self
+
+    async def execute(self) -> list[Any]:
+        return await self._pipe.execute()
+
+    async def __aenter__(self) -> "TenantPipeline":
+        await self._pipe.__aenter__()
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self._pipe.__aexit__(*args)

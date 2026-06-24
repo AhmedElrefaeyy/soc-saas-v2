@@ -47,12 +47,14 @@ class RealtimeWorker:
             stream_names.ALERT_EVENTS,
             ch.GROUP_REALTIME,
             self._consumer_name,
+            tenant_id=self._tenant_id,
         )
         inv_consumer = StreamConsumer(
             pipeline_client,
             stream_names.INVESTIGATION_RESULTS,
             ch.GROUP_REALTIME,
             self._consumer_name,
+            tenant_id=self._tenant_id,
         )
 
         logger.info(

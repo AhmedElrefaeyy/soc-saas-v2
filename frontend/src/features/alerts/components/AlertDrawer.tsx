@@ -1,15 +1,19 @@
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNowStrict, format } from "date-fns";
 import {
   Shield, Monitor, User, Globe, Brain, Link2, Clock, Tag,
   AlertTriangle, CheckCircle, XCircle, BarChart2, Send,
   ExternalLink, ChevronRight, FolderSearch, RotateCcw, Eye,
+  ChevronDown, MessageSquare,
 } from "lucide-react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import * as Select from "@radix-ui/react-select";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { promoteAlert } from "@/features/investigations/api/investigationsApi";
 import { updateAlert } from "@/services/alertsApi";
+import { settingsApi } from "@/api/settings";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
 import { Badge, SeverityBadge } from "@/components/ui/Badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/Tabs";
@@ -17,6 +21,7 @@ import { SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useAlertDetail, useAlertContext, useAlertTimeline } from "../hooks/useAlerts";
 import { alertsKeys } from "../hooks/useAlerts";
+import { useTenantStore } from "@/stores/tenantStore";
 import type { Alert, AlertRiskContext, AlertTimelineEvent, AIVerdictType, AlertStatus } from "../types";
 
 // ─── Status display ───────────────────────────────────────────────────────────
@@ -330,21 +335,16 @@ function InvestigationSection({
             className="py-4"
           />
           <div className="flex justify-center mt-2">
-            <button
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => promote.mutate()}
               disabled={promote.isPending}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors"
-              style={{
-                background: "#0f2744",
-                border: "1px solid rgba(59,130,246,0.35)",
-                color: "#93C5FD",
-                cursor: promote.isPending ? "not-allowed" : "pointer",
-                opacity: promote.isPending ? 0.6 : 1,
-              }}
+              loading={promote.isPending}
             >
               <FolderSearch className="w-3.5 h-3.5" />
               {promote.isPending ? "Promoting…" : "Promote to Investigation"}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -519,28 +519,220 @@ function AISection({ alert }: { alert: Alert }) {
   );
 }
 
+// ─── Assignment Select ────────────────────────────────────────────────────────
+
+const selectContentCls = cn(
+  "z-50 min-w-[180px] overflow-hidden rounded-lg border border-border",
+  "bg-bg-card shadow-elevated",
+  "data-[state=open]:animate-in data-[state=closed]:animate-out",
+  "data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+  "data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
+);
+
+function AssignmentSelect({
+  currentId,
+  currentName,
+  onAssign,
+  disabled,
+}: {
+  currentId?: string;
+  currentName?: string;
+  onAssign: (userId: string | null, name: string | null) => void;
+  disabled?: boolean;
+}) {
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? "";
+  const { data: members = [] } = useQuery({
+    queryKey: ["tenant-members", tenantId],
+    queryFn:  () => settingsApi.getMembers(tenantId),
+    enabled:  !!tenantId,
+    staleTime: 120_000,
+  });
+
+  return (
+    <Select.Root
+      value={currentId ?? "__unassigned__"}
+      onValueChange={(v) => {
+        if (v === "__unassigned__") {
+          onAssign(null, null);
+        } else {
+          const m = members.find((m) => m.user_id === v);
+          onAssign(v, m?.full_name ?? m?.email ?? v);
+        }
+      }}
+      disabled={disabled}
+    >
+      <Select.Trigger
+        className={cn(
+          "flex items-center gap-2 w-full px-2.5 py-1.5 rounded-lg text-sm",
+          "bg-bg-elevated border border-border text-text-secondary",
+          "hover:border-border-hover hover:text-text-primary transition-colors",
+          "focus:outline-none focus:ring-1 focus:ring-accent",
+          "disabled:opacity-50 disabled:cursor-not-allowed",
+        )}
+        aria-label="Assign alert to analyst"
+      >
+        <div className="w-5 h-5 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0">
+          <User size={10} className="text-accent" />
+        </div>
+        <Select.Value placeholder="Unassigned">
+          {currentName ?? "Unassigned"}
+        </Select.Value>
+        <Select.Icon asChild className="ml-auto text-text-muted">
+          <ChevronDown size={12} />
+        </Select.Icon>
+      </Select.Trigger>
+      <Select.Portal>
+        <Select.Content className={selectContentCls} position="popper" sideOffset={4}>
+          <Select.Viewport className="p-1">
+            <Select.Item
+              value="__unassigned__"
+              className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-text-muted rounded cursor-pointer select-none hover:bg-bg-elevated hover:text-text-primary focus:outline-none focus:bg-bg-elevated data-[highlighted]:bg-bg-elevated data-[highlighted]:text-text-primary"
+            >
+              <User size={10} />
+              <Select.ItemText>Unassigned</Select.ItemText>
+            </Select.Item>
+            {members.map((m) => (
+              <Select.Item
+                key={m.user_id}
+                value={m.user_id}
+                className="flex items-center gap-2 px-2.5 py-1.5 text-xs text-text-secondary rounded cursor-pointer select-none hover:bg-bg-elevated hover:text-text-primary focus:outline-none focus:bg-bg-elevated data-[highlighted]:bg-bg-elevated data-[highlighted]:text-text-primary"
+              >
+                <div className="w-4 h-4 rounded-full bg-accent/20 flex items-center justify-center flex-shrink-0 text-2xs font-bold text-accent">
+                  {(m.full_name ?? m.email ?? "?")[0].toUpperCase()}
+                </div>
+                <Select.ItemText>{m.full_name ?? m.email}</Select.ItemText>
+              </Select.Item>
+            ))}
+          </Select.Viewport>
+        </Select.Content>
+      </Select.Portal>
+    </Select.Root>
+  );
+}
+
+// ─── Threaded notes feed ──────────────────────────────────────────────────────
+
+interface NoteEntry {
+  id:        string;
+  text:      string;
+  author:    string;
+  createdAt: number;
+}
+
+function NotesFeed({
+  existing,
+  onSubmit,
+  disabled,
+}: {
+  existing?: string;
+  onSubmit: (text: string) => void;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState("");
+  const [history, setHistory] = useState<NoteEntry[]>(() => {
+    if (!existing?.trim()) return [];
+    return [{ id: "legacy", text: existing, author: "Analyst", createdAt: Date.now() - 1000 }];
+  });
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const submit = () => {
+    const text = draft.trim();
+    if (!text || disabled) return;
+    const entry: NoteEntry = {
+      id: crypto.randomUUID(),
+      text,
+      author: "Me",
+      createdAt: Date.now(),
+    };
+    setHistory((prev) => [...prev, entry]);
+    setDraft("");
+    onSubmit(text);
+    setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
+  };
+
+  return (
+    <div className="space-y-2">
+      {history.length > 0 && (
+        <div className="max-h-48 overflow-y-auto space-y-2 pr-0.5">
+          {history.map((entry) => (
+            <div key={entry.id} className="flex gap-2">
+              <div className="w-5 h-5 rounded-full bg-accent/15 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-2xs font-bold text-accent">{entry.author[0]}</span>
+              </div>
+              <div className="flex-1 bg-bg-elevated border border-border rounded-lg px-2.5 py-1.5">
+                <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                  <span className="text-2xs font-semibold text-text-primary">{entry.author}</span>
+                  <span className="text-2xs text-text-muted flex-shrink-0">
+                    {formatDistanceToNowStrict(new Date(entry.createdAt), { addSuffix: true })}
+                  </span>
+                </div>
+                <p className="text-xs text-text-secondary whitespace-pre-wrap leading-snug">{entry.text}</p>
+              </div>
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+      )}
+      <div className="flex gap-2">
+        <div className="flex-1 flex items-start gap-1.5 bg-bg-elevated border border-border rounded-lg px-2.5 py-1.5 focus-within:ring-1 focus-within:ring-accent">
+          <MessageSquare size={12} className="text-text-muted flex-shrink-0 mt-0.5" />
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); submit(); } }}
+            placeholder="Add a note... (Ctrl+Enter to submit)"
+            rows={2}
+            disabled={disabled}
+            aria-label="Add analyst note"
+            className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-muted resize-none focus:outline-none disabled:opacity-50"
+          />
+        </div>
+        <button
+          onClick={submit}
+          disabled={disabled || !draft.trim()}
+          aria-label="Submit note"
+          className="flex items-center justify-center w-8 h-8 mt-0.5 rounded-lg bg-accent text-white hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex-shrink-0"
+        >
+          <Send size={12} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Section: Analyst ─────────────────────────────────────────────────────────
 
 function AnalystSection({ alert }: { alert: Alert }) {
-  const [note, setNote] = useState(alert.notes ?? "");
   const qc = useQueryClient();
+  const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? "";
 
+  // Optimistic updates for status mutation
   const mutation = useMutation({
-    mutationFn: (payload: { status?: string; notes?: string }) =>
+    mutationFn: (payload: { status?: string; notes?: string; assigneeId?: string }) =>
       updateAlert(alert.id, payload),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: alertsKeys.detail(alert.id) });
-      void qc.invalidateQueries({ queryKey: alertsKeys.lists() });
-      void qc.invalidateQueries({ queryKey: ["alerts", "count"] });
+    onMutate: async (payload) => {
+      await qc.cancelQueries({ queryKey: alertsKeys.detail(tenantId, alert.id) });
+      const prev = qc.getQueryData<Alert>(alertsKeys.detail(tenantId, alert.id));
+      if (prev) {
+        qc.setQueryData(alertsKeys.detail(tenantId, alert.id), {
+          ...prev,
+          ...(payload.status && { status: payload.status as AlertStatus }),
+        });
+      }
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(alertsKeys.detail(tenantId, alert.id), ctx.prev);
+    },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: alertsKeys.detail(tenantId, alert.id) });
+      void qc.invalidateQueries({ queryKey: alertsKeys.lists(tenantId) });
     },
   });
 
-  const changeStatus = (status: string) => mutation.mutate({ status });
-  const saveNote = () => {
-    if (note.trim() !== (alert.notes ?? "")) {
-      mutation.mutate({ notes: note.trim() });
-    }
-  };
+  const changeStatus    = (status: string) => mutation.mutate({ status });
+  const handleAssign    = (userId: string | null) => mutation.mutate({ assigneeId: userId ?? "" });
+  const handleNote      = (text: string) => mutation.mutate({ notes: text });
 
   const isLoading = mutation.isPending;
   const status    = alert.status;
@@ -601,43 +793,27 @@ function AnalystSection({ alert }: { alert: Alert }) {
             Failed to update. Please try again.
           </p>
         )}
-        {mutation.isSuccess && (
-          <p className="text-xs text-status-online">Saved.</p>
-        )}
       </div>
 
       {/* Assignment */}
       <div className="border border-border rounded-lg p-3 space-y-2">
         <p className="text-2xs text-text-muted uppercase tracking-wider font-medium">Assignment</p>
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-full bg-accent/20 flex items-center justify-center">
-            <User className="w-3.5 h-3.5 text-accent" />
-          </div>
-          <span className="text-sm text-text-secondary">
-            {alert.assignedToName ?? "Unassigned"}
-          </span>
-        </div>
+        <AssignmentSelect
+          currentId={alert.assignedTo}
+          currentName={alert.assignedToName}
+          onAssign={(userId) => handleAssign(userId)}
+          disabled={isLoading}
+        />
       </div>
 
-      {/* Notes */}
+      {/* Notes — threaded feed */}
       <div className="border border-border rounded-lg p-3 space-y-2">
         <p className="text-2xs text-text-muted uppercase tracking-wider font-medium">Analyst Notes</p>
-        <textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          onBlur={saveNote}
-          placeholder="Add analyst notes..."
-          rows={4}
-          className="w-full px-3 py-2 text-sm bg-bg-elevated border border-border rounded-md text-text-primary placeholder:text-text-muted resize-none focus:outline-none focus:ring-1 focus:ring-accent"
+        <NotesFeed
+          existing={alert.notes}
+          onSubmit={handleNote}
+          disabled={isLoading}
         />
-        <button
-          onClick={saveNote}
-          disabled={isLoading || note.trim() === (alert.notes ?? "")}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          <Send className="w-3 h-3" />
-          Save Note
-        </button>
       </div>
     </div>
   );
@@ -713,13 +889,11 @@ const TABS = [
 
 export function AlertDrawer({ alertId, onClose }: AlertDrawerProps) {
   const [activeTab, setActiveTab] = useState<string>("overview");
-  const prevAlertId = useRef<string | null>(null);
 
-  // Reset to overview tab when opening a new alert
-  if (alertId && alertId !== prevAlertId.current) {
-    prevAlertId.current = alertId;
-    if (activeTab !== "overview") setActiveTab("overview");
-  }
+  // Reset to overview tab when the selected alert changes
+  useEffect(() => {
+    if (alertId) setActiveTab("overview");
+  }, [alertId]);
 
   const { data: alert, isLoading } = useAlertDetail(alertId);
 

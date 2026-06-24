@@ -5,6 +5,13 @@ Revises: 017_ueba_reasons
 Create Date: 2026-06-18
 
 P2: Add triggering_alert_ids to investigations (alert → investigation linkage)
+
+NOTE — Revision ID naming convention:
+  Migrations 001–017 use descriptive IDs (e.g. "017_ueba_reasons").
+  Migrations 018+ use short numeric IDs (e.g. "018").
+  Both styles are valid Alembic revision IDs. Do NOT rename any existing
+  revision ID — that would break the migration chain for every deployed DB.
+  New migrations should continue the short numeric style ("030", "031", ...).
 """
 from __future__ import annotations
 

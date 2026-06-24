@@ -53,7 +53,9 @@ async def download_bootstrap_script() -> PlainTextResponse:
 
 
 @router.get("/soc_agent_v2.py", include_in_schema=False)
-async def download_agent_script() -> PlainTextResponse:
+async def download_agent_script(
+    member: Annotated[object, require_permission(Permission.AGENTS_VIEW_TOKEN)],
+) -> PlainTextResponse:
     """Serves the V2 Python agent script for download."""
     path = os.path.join(_SCRIPTS_DIR, "soc_agent_v2.py")
     try:

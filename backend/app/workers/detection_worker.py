@@ -10,6 +10,7 @@ import structlog
 
 from app.core.database import database_manager
 from app.core.redis import TenantRedisClient, redis_manager
+from app.core.utils import create_task_safe
 from app.detection.attack_chain import check_attack_chains
 from app.detection.engine import DetectionEngine
 from app.normalization.models import NormalizedEvent, NormalizedProcess, NormalizedNetwork, NormalizedFile, NormalizedUser
@@ -41,6 +42,7 @@ class DetectionWorker:
             stream_names.NORMALIZED_EVENTS,
             stream_names.GROUP_DETECT,
             self._consumer_name,
+            tenant_id=self._tenant_id,
         )
 
         await consumer.run(self._handle_message, stop_event)
@@ -102,16 +104,16 @@ class DetectionWorker:
                 for alert in alerts:
                     if alert.severity in (AlertSeverity.HIGH, AlertSeverity.CRITICAL):
                         # Email to opted-in tenant members
-                        asyncio.create_task(notify_alert_email(
+                        create_task_safe(notify_alert_email(
                             alert_id=str(alert.id),
                             tenant_id=tenant_uuid,
                             alert_title=alert.title or "Security Alert",
                             severity=alert.severity.value,
                             source_host=alert.source_host,
                             ai_metadata=alert.ai_metadata,
-                        ))
+                        ), name=f"notify_alert_{alert.id}")
                         # Outbound channels (Slack, Teams, webhook, PagerDuty, email lists)
-                        asyncio.create_task(dispatch_alert_to_channels(
+                        create_task_safe(dispatch_alert_to_channels(
                             tenant_id=tenant_uuid,
                             alert_id=str(alert.id),
                             title=alert.title or "Security Alert",
@@ -119,9 +121,9 @@ class DetectionWorker:
                             source_host=alert.source_host,
                             mitre_techniques=alert.mitre_techniques,
                             created_at=alert.created_at,
-                        ))
+                        ), name=f"dispatch_alert_{alert.id}")
                         # Auto-generate IR playbook — non-blocking, failure never affects pipeline
-                        asyncio.create_task(_auto_generate_playbook(
+                        create_task_safe(_auto_generate_playbook(
                             alert_id=alert.id,
                             tenant_id=tenant_uuid,
                             alert_title=alert.title or "Security Alert",
@@ -130,7 +132,7 @@ class DetectionWorker:
                             mitre_techniques=list(alert.mitre_techniques or []),
                             mitre_tactics=list(alert.mitre_tactics or []),
                             evidence=dict(alert.evidence or {}),
-                        ))
+                        ), name=f"auto_playbook_{alert.id}")
 
                 # Attack chain correlation — non-blocking, runs after commit
                 # Checks if this alert + recent alerts on the same host form a

@@ -320,7 +320,9 @@ class ReportGeneratorService:
         db.add(report)
         await db.flush()
 
-        asyncio.create_task(
-            _generate_in_background(report.id, tenant_id, report_type, period_days, company_name)
+        from app.core.utils import create_task_safe
+        create_task_safe(
+            _generate_in_background(report.id, tenant_id, report_type, period_days, company_name),
+            name=f"report_generate_{report.id}",
         )
         return report

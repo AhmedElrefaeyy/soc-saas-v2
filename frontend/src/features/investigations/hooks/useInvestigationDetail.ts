@@ -48,6 +48,8 @@ export interface InvestigationDetail {
   source: string | null
   created_at: string
   updated_at: string
+  resolved_at?: string | null
+  closed_at?: string | null
   technical_summary: string
   attack_progression: string[]
   recommended_actions: string[]
@@ -152,7 +154,7 @@ export function useInvDetail(id: string) {
   })
 }
 
-export function useInvTimeline(id: string) {
+export function useInvTimeline(id: string, options?: { enabled?: boolean; refetchInterval?: number | false }) {
   return useQuery({
     queryKey: ['inv-detail', id, 'timeline'],
     queryFn: async () => {
@@ -161,12 +163,13 @@ export function useInvTimeline(id: string) {
       )
       return resp.data.data!
     },
-    enabled: !!id,
+    enabled: (options?.enabled ?? true) && !!id,
     staleTime: 20_000,
+    refetchInterval: options?.refetchInterval,
   })
 }
 
-export function useInvGraph(id: string) {
+export function useInvGraph(id: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['inv-detail', id, 'graph'],
     queryFn: async () => {
@@ -175,12 +178,12 @@ export function useInvGraph(id: string) {
       )
       return resp.data.data!
     },
-    enabled: !!id,
+    enabled: (options?.enabled ?? true) && !!id,
     staleTime: 30_000,
   })
 }
 
-export function useInvEvidence(id: string) {
+export function useInvEvidence(id: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['inv-detail', id, 'evidence'],
     queryFn: async () => {
@@ -189,12 +192,12 @@ export function useInvEvidence(id: string) {
       )
       return resp.data.data ?? []
     },
-    enabled: !!id,
+    enabled: (options?.enabled ?? true) && !!id,
     staleTime: 30_000,
   })
 }
 
-export function useInvNotes(id: string) {
+export function useInvNotes(id: string, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['inv-detail', id, 'notes'],
     queryFn: async () => {
@@ -203,7 +206,7 @@ export function useInvNotes(id: string) {
       )
       return resp.data.data ?? []
     },
-    enabled: !!id,
+    enabled: (options?.enabled ?? true) && !!id,
     staleTime: 10_000,
   })
 }

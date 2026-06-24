@@ -19,6 +19,7 @@ export function LoginPage() {
   const setAuth        = useAuthStore((s) => s.setAuth);
   const setAuthTenant  = useAuthStore((s) => s.setActiveTenant);
   const setStoreTenant = useTenantStore((s) => s.setActiveTenant);
+  const setMFAPending  = useAuthStore((s) => s.setMFAPending);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -48,7 +49,6 @@ export function LoginPage() {
       setAuth(
         { id: "", email, full_name: "", is_active: true, created_at: "" },
         tokens.access_token,
-        tokens.refresh_token,
       );
 
       try {
@@ -72,6 +72,13 @@ export function LoginPage() {
         (err.details as Record<string, unknown>)?.code === "EMAIL_NOT_VERIFIED"
       ) {
         setUnverifiedEmail(email);
+      } else if (
+        isApiError(err) &&
+        err.code === "FORBIDDEN" &&
+        (err.details as Record<string, unknown>)?.code === "MFA_REQUIRED"
+      ) {
+        setMFAPending({ email, password });
+        navigate("/mfa-login");
       } else {
         setError(extractApiError(err));
       }

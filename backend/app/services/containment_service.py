@@ -158,8 +158,10 @@ class ContainmentService:
         await db.flush()
 
         # Non-blocking WebSocket broadcast
-        asyncio.create_task(
-            _broadcast_containment_change(tenant_id, agent, new_state, reason)
+        from app.core.utils import create_task_safe
+        create_task_safe(
+            _broadcast_containment_change(tenant_id, agent, new_state, reason),
+            name=f"containment_ws_{agent_id}",
         )
 
         logger.info(

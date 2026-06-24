@@ -8,13 +8,45 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
+import urllib.parse
 from datetime import datetime, timezone
 from uuid import UUID
 
 import structlog
 
 log = structlog.get_logger(__name__)
+
+
+def _validate_webhook_url(url: str) -> None:
+    """
+    Reject webhook URLs that point to private/loopback addresses (SSRF prevention).
+    Only HTTPS is allowed for outbound webhooks in production.
+    Raises ValueError if the URL is not permitted.
+    """
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except Exception as exc:
+        raise ValueError(f"Invalid webhook URL: {exc}") from exc
+
+    if parsed.scheme not in ("https", "http"):
+        raise ValueError(f"Webhook URL must use HTTP(S), got: {parsed.scheme!r}")
+
+    hostname = parsed.hostname or ""
+    # Reject bare IP addresses that are private/loopback/link-local
+    try:
+        addr = ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise ValueError(f"Webhook URL targets a private/reserved IP: {hostname}")
+    except ValueError as exc:
+        # Not an IP address — check for explicit localhost variants
+        hostname_lower = hostname.lower()
+        if hostname_lower in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+            raise ValueError(f"Webhook URL targets localhost: {hostname}")
+        # Re-raise only if raised inside the try block (i.e., it IS an IP but invalid)
+        if "Webhook URL targets" in str(exc):
+            raise
 
 _SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 _PAGERDUTY_SEVERITY_MAP = {
@@ -143,6 +175,7 @@ async def _send_slack(
 ) -> None:
     import httpx
     webhook_url = config["webhook_url"]
+    _validate_webhook_url(webhook_url)
     sev_upper = severity.upper()
     color = _SEV_COLORS.get(severity.lower(), "#6366F1")
     prefix = "[TEST] " if is_test else ""
@@ -194,6 +227,7 @@ async def _send_teams(
 ) -> None:
     import httpx
     webhook_url = config["webhook_url"]
+    _validate_webhook_url(webhook_url)
     sev_upper = severity.upper()
     color = _SEV_COLORS.get(severity.lower(), "#6366F1").lstrip("#")
     prefix = "[TEST] " if is_test else ""
@@ -236,6 +270,7 @@ async def _send_webhook(
 ) -> None:
     import httpx
     url = config["url"]
+    _validate_webhook_url(url)
     secret = config.get("secret", "")
     extra_headers: dict = config.get("headers", {})
 

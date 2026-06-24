@@ -52,7 +52,7 @@ class AgentService:
         offset = (page - 1) * limit
 
         total_result = await db.execute(
-            select(func.count()).where(
+            select(func.count(Agent.id)).where(
                 Agent.tenant_id == tenant_id,
                 Agent.deleted_at.is_(None),
             )

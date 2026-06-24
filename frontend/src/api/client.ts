@@ -113,7 +113,7 @@ apiClient.interceptors.response.use(
         }>>(`${API_BASE_URL}${API_PREFIX}/auth/refresh`, {}, { withCredentials: true });
 
         const tokens = response.data.data!;
-        useAuthStore.getState().setTokens(tokens.access_token, tokens.refresh_token);
+        useAuthStore.getState().setTokens(tokens.access_token);
         onRefreshComplete(tokens.access_token);
 
         originalRequest.headers.Authorization = `Bearer ${tokens.access_token}`;
@@ -128,6 +128,26 @@ apiClient.interceptors.response.use(
       } finally {
         isRefreshing = false;
       }
+    }
+
+    // Well-known HTTP status codes that the backend can return but may not carry
+    // a structured error envelope (e.g. middleware rejects before the route handler).
+    const status = error.response?.status;
+    if (status === 429) {
+      const retryAfter = error.response?.headers?.["retry-after"];
+      return Promise.reject(
+        new ApiError(
+          "RATE_LIMIT_EXCEEDED",
+          retryAfter
+            ? `Too many requests — please wait ${retryAfter}s before retrying`
+            : "Too many requests — please slow down and try again",
+        ),
+      );
+    }
+    if (status === 413) {
+      return Promise.reject(
+        new ApiError("PAYLOAD_TOO_LARGE", "Request body is too large (max 10 MiB)"),
+      );
     }
 
     // Convert any backend structured error envelope {error:{code,message,details}}

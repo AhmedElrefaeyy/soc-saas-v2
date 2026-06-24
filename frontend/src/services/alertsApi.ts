@@ -145,6 +145,32 @@ export async function bulkUpdateAlerts(
   return data.data!;
 }
 
+// ─── Alert status summary (single call replaces 4 per-status count queries) ──
+
+export interface AlertsSummary {
+  open: number;
+  acknowledged: number;
+  closed: number;
+  false_positive: number;
+}
+
+export async function getAlertsSummary(): Promise<AlertsSummary> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data } = await apiClient.get<any>("/alerts/summary");
+    const d = data?.data ?? data;
+    return {
+      open:           Number(d?.open           ?? 0),
+      acknowledged:   Number(d?.acknowledged   ?? 0),
+      closed:         Number(d?.closed         ?? 0),
+      false_positive: Number(d?.false_positive ?? 0),
+    };
+  } catch {
+    // Backend endpoint not yet implemented — return zeros gracefully
+    return { open: 0, acknowledged: 0, closed: 0, false_positive: 0 };
+  }
+}
+
 // ─── Placeholder data ─────────────────────────────────────────────────────────
 
 export const PLACEHOLDER_ALERT_LIST: AlertListResponse = {

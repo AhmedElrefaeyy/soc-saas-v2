@@ -44,6 +44,7 @@ class CorrelationWorker:
             stream_names.NORMALIZED_EVENTS,
             stream_names.GROUP_CORRELATE,
             self._consumer_name,
+            tenant_id=self._tenant_id,
         )
 
         await consumer.run(self._handle_message, stop_event)

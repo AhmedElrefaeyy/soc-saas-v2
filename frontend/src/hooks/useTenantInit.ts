@@ -36,7 +36,7 @@ export function useTenantInit() {
           ? tenants.find((t) => t.id === storedTenantId)
           : null
         const tenant = match ?? tenants[0]
-        const role: MemberRole = tenant.member_role ?? 'owner'
+        const role: MemberRole = tenant.member_role ?? 'viewer'
         setStoreTenant(tenant, role)
         setAuthTenant(tenant.id)
       })

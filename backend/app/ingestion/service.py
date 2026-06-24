@@ -5,13 +5,23 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
+
+async def _invalidate_dashboard_cache(tenant_id: str) -> None:
+    try:
+        from app.api.v1.dashboard import _invalidate_dashboard_cache as _dash_invalidate
+        await _dash_invalidate(tenant_id)
+    except Exception:
+        pass
+
 import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, UnauthorizedError
+from app.core.metrics import AGENT_HEARTBEATS_TOTAL, EVENTS_INGESTED_TOTAL
 from app.core.redis import TenantRedisClient
-from app.core.security import hash_password, verify_password
+from app.core.security import hash_agent_token, verify_agent_token
+from app.core.utils import create_task_safe
 from app.ingestion.idempotency import IdempotencyStore
 from app.ingestion.schemas import (
     AgentEnrollRequest,
@@ -31,6 +41,51 @@ logger = structlog.get_logger(__name__)
 
 _ENROLLMENT_TOKEN_BYTES = 32
 
+# Explicit allowlist of extra fields an agent may send beyond the RawEventPayload schema.
+# Windows Event Log structured fields + Sysmon modern channel fields only.
+_ALLOWED_EXTRA_FIELDS: frozenset[str] = frozenset({
+    "event_id_windows",
+    "Image", "CommandLine", "ParentImage", "ParentCommandLine",
+    "TargetUserName", "SubjectUserName", "TargetDomainName", "SubjectDomainName",
+    "ServiceName", "GroupName", "MemberName",
+    "ProcessId", "ParentProcessId", "LogonType", "PrivilegeList",
+    "WorkstationName", "CurrentDirectory", "IntegrityLevel",
+    "TargetObject", "Details", "EventType", "RuleName",
+    "DestinationIp", "DestinationPort", "SourceIp", "SourcePort", "Protocol",
+    "DestinationHostname",
+    "source_ip",
+})
+
+_VALID_CATEGORIES: frozenset[str] = frozenset({
+    "auth", "process", "network", "file", "dns", "registry", "other"
+})
+_MAX_FUTURE_SKEW_SECONDS = 300  # 5 minutes — reject events timestamped too far in future
+
+
+def _sanitize_event_fields(event: "RawEventPayload", now: "datetime") -> "RawEventPayload":
+    """
+    Sanitize agent-supplied event fields to prevent injection attacks.
+    Returns a new model instance with sanitized fields (Pydantic models are immutable).
+    """
+    updates: dict[str, Any] = {}
+
+    # Clamp unknown categories to "other"
+    if event.category not in _VALID_CATEGORIES:
+        updates["category"] = "other"
+
+    # Reject events timestamped more than 5 min in the future (agent clock manipulation)
+    if event.timestamp.tzinfo is None:
+        from datetime import timezone
+        ts = event.timestamp.replace(tzinfo=timezone.utc)
+    else:
+        ts = event.timestamp
+    if (ts - now).total_seconds() > _MAX_FUTURE_SKEW_SECONDS:
+        updates["timestamp"] = now
+
+    if updates:
+        return event.model_copy(update=updates)
+    return event
+
 
 class IngestionService:
 
@@ -42,7 +97,7 @@ class IngestionService:
         created_by_id: UUID,
     ) -> AgentEnrollResponse:
         raw_token = secrets.token_urlsafe(_ENROLLMENT_TOKEN_BYTES)
-        token_hash = hash_password(raw_token)
+        token_hash = hash_agent_token(raw_token)
 
         agent = Agent(
             tenant_id=tenant_id,
@@ -91,7 +146,7 @@ class IngestionService:
         if agent is None:
             raise UnauthorizedError("Agent not found")
 
-        if not verify_password(enrollment_token, agent.enrollment_token_hash):
+        if not verify_agent_token(enrollment_token, agent.enrollment_token_hash):
             raise UnauthorizedError("Invalid agent credentials")
 
         return agent
@@ -105,6 +160,10 @@ class IngestionService:
     ) -> IngestBatchResponse:
         validate_batch(payload.events)
 
+        from datetime import datetime, timezone
+        _now = datetime.now(tz=timezone.utc)
+        sanitized_events = [_sanitize_event_fields(e, _now) for e in payload.events]
+
         idempotency = IdempotencyStore(redis_client)
         publisher = StreamPublisher(redis_client)
 
@@ -113,7 +172,7 @@ class IngestionService:
         duplicates = 0
         stream_ids: list[str] = []
 
-        for event in payload.events:
+        for event in sanitized_events:
             if await idempotency.is_duplicate(event.event_id):
                 duplicates += 1
                 logger.debug("duplicate_event_skipped", event_id=event.event_id)
@@ -141,6 +200,13 @@ class IngestionService:
             rejected=rejected,
             duplicates=duplicates,
         )
+
+        if accepted > 0:
+            EVENTS_INGESTED_TOTAL.labels(tenant_id=str(agent.tenant_id)).inc(accepted)
+            create_task_safe(
+                _invalidate_dashboard_cache(str(agent.tenant_id)),
+                name=f"invalidate_dashboard_{agent.tenant_id}",
+            )
 
         return IngestBatchResponse(
             accepted=accepted,
@@ -176,11 +242,17 @@ class IngestionService:
 
         await db.flush()
 
+        AGENT_HEARTBEATS_TOTAL.labels(tenant_id=str(agent.tenant_id)).inc()
+
 
 def _build_stream_message(agent: Agent, event: RawEventPayload) -> dict[str, Any]:
-    # Spread extra fields first (e.g. event_id_windows, Image, CommandLine, TargetUserName
+    # Spread allowlisted extra fields (e.g. event_id_windows, Image, CommandLine, TargetUserName
     # sent by the Windows agent) so the normalizer can read them at the top level.
-    message: dict[str, Any] = {**(event.model_extra or {})}
+    message: dict[str, Any] = {
+        k: v
+        for k, v in (event.model_extra or {}).items()
+        if k in _ALLOWED_EXTRA_FIELDS
+    }
     message.update({
         # Authoritative agent metadata — always override what the agent claims
         "agent_id":  str(agent.id),

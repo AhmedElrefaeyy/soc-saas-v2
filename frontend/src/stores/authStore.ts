@@ -2,18 +2,27 @@ import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import type { User } from "@/types/auth";
 
+// Temporary MFA challenge state — holds credentials just long enough for the
+// MFA prompt screen.  Never persisted to localStorage.
+interface MFAPending {
+  email: string;
+  password: string;
+}
+
 interface AuthState {
   user: User | null;
   accessToken: string | null;
-  refreshToken: string | null;
   activeTenantId: string | null;
+  // mfaPending is in-memory only (NOT in partialize) — cleared on page reload
+  mfaPending: MFAPending | null;
 
   // Actions
-  setAuth: (user: User, accessToken: string, refreshToken: string) => void;
-  setTokens: (accessToken: string, refreshToken: string) => void;
+  setAuth: (user: User, accessToken: string) => void;
+  setTokens: (accessToken: string) => void;
   setActiveTenant: (tenantId: string | null) => void;
   setUser: (user: User) => void;
   clearAuth: () => void;
+  setMFAPending: (pending: MFAPending | null) => void;
 
   // Computed
   isAuthenticated: () => boolean;
@@ -24,14 +33,18 @@ export const useAuthStore = create<AuthState>()(
     (set, get) => ({
       user: null,
       accessToken: null,
-      refreshToken: null,
       activeTenantId: null,
+      mfaPending: null,
 
-      setAuth: (user, accessToken, refreshToken) =>
-        set({ user, accessToken, refreshToken }),
+      // refreshToken is intentionally absent from state.
+      // It lives exclusively in an httpOnly SameSite=strict cookie set by the server.
+      // Storing it in JS memory would expose it to XSS; the cookie is inaccessible to JS.
 
-      setTokens: (accessToken, refreshToken) =>
-        set({ accessToken, refreshToken }),
+      setAuth: (user, accessToken) =>
+        set({ user, accessToken, mfaPending: null }),
+
+      setTokens: (accessToken) =>
+        set({ accessToken }),
 
       setActiveTenant: (tenantId) =>
         set({ activeTenantId: tenantId }),
@@ -43,9 +56,12 @@ export const useAuthStore = create<AuthState>()(
         set({
           user: null,
           accessToken: null,
-          refreshToken: null,
           activeTenantId: null,
+          mfaPending: null,
         }),
+
+      setMFAPending: (pending) =>
+        set({ mfaPending: pending }),
 
       isAuthenticated: () => {
         const { accessToken } = get();
@@ -55,11 +71,10 @@ export const useAuthStore = create<AuthState>()(
     {
       name: "soc-auth",
       storage: createJSONStorage(() => localStorage),
-      // Only persist tokens and active tenant — not full user object
-      // (user profile is re-fetched on app init)
+      // accessToken and user are NOT persisted — they are re-hydrated on page load
+      // via /auth/me.  Only the active tenant selection survives a hard reload.
+      // mfaPending is intentionally excluded — it must not survive a page reload.
       partialize: (state) => ({
-        accessToken: state.accessToken,
-        // refreshToken intentionally excluded — stored in httpOnly cookie, not localStorage
         activeTenantId: state.activeTenantId,
         user: state.user,
       }),

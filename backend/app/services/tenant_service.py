@@ -277,12 +277,14 @@ class TenantService:
         if target is None:
             raise NotFoundError("Member not found")
 
-        # Prevent privilege escalation — cannot assign a role >= actor's own role
+        # Prevent privilege escalation — actors below OWNER cannot assign a role >= their own.
+        # OWNER (the highest role) is explicitly allowed to promote others to OWNER so that
+        # ownership can be transferred without requiring a super-admin bypass.
         actor_level  = ROLE_HIERARCHY.get(Role(actor.role), -1)
         target_level = ROLE_HIERARCHY.get(new_role, -1)
-        if target_level >= actor_level:
+        if target_level > actor_level:
             raise ForbiddenError(
-                "You cannot assign a role equal to or higher than your own"
+                "You cannot assign a role higher than your own"
             )
 
         if target.role == Role.OWNER.value and new_role != Role.OWNER:

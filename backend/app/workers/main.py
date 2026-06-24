@@ -12,6 +12,7 @@ import asyncio
 import os
 import signal
 import socket
+import uuid
 
 import structlog
 
@@ -22,6 +23,7 @@ from app.core.redis import redis_manager
 from app.pipeline import stream_names
 from app.pipeline.publisher import StreamPublisher
 from app.core.redis import TenantRedisClient
+from app.core.utils import create_task_safe
 from app.workers.normalization_worker import NormalizationWorker
 from app.workers.detection_worker import DetectionWorker
 from app.workers.correlation_worker import CorrelationWorker
@@ -36,8 +38,10 @@ from app.realtime.broadcast import RealtimeListener
 
 logger = structlog.get_logger(__name__)
 
-# Worker consumer identity (unique per process/pod)
-_WORKER_ID = f"{socket.gethostname()}-{os.getpid()}"
+# Worker consumer identity — must be globally unique across replicas.
+# PID alone collides when multiple pods run in containers (all PID 1).
+# A UUID4 suffix ensures uniqueness even when hostname and PID are identical.
+_WORKER_ID = f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:8]}"
 
 
 async def _load_active_tenant_ids() -> list[str]:
@@ -69,9 +73,9 @@ async def _tenant_hot_reload(
     worker_registry: dict[str, bool],
     stop_event: asyncio.Event,
 ) -> None:
-    """Check for new tenants every 5 minutes and spin up workers."""
+    """Check for new tenants every 60 s and spin up workers for them."""
     while not stop_event.is_set():
-        await asyncio.sleep(300)
+        await asyncio.sleep(60)
         if stop_event.is_set():
             break
         try:
@@ -100,11 +104,11 @@ async def _tenant_hot_reload(
                 inv_worker  = InvestigationWorker(tenant_id, f"inv-{_WORKER_ID}")
                 rt_worker   = RealtimeWorker(tenant_id, f"rt-{_WORKER_ID}")
 
-                asyncio.create_task(norm_worker.run(stop_event), name=f"norm-{tenant_id}")
-                asyncio.create_task(det_worker.run(stop_event), name=f"detect-{tenant_id}")
-                asyncio.create_task(corr_worker.run(stop_event), name=f"corr-{tenant_id}")
-                asyncio.create_task(inv_worker.run(stop_event), name=f"inv-{tenant_id}")
-                asyncio.create_task(rt_worker.run(stop_event), name=f"realtime-{tenant_id}")
+                create_task_safe(norm_worker.run(stop_event), name=f"norm-{tenant_id}")
+                create_task_safe(det_worker.run(stop_event), name=f"detect-{tenant_id}")
+                create_task_safe(corr_worker.run(stop_event), name=f"corr-{tenant_id}")
+                create_task_safe(inv_worker.run(stop_event), name=f"inv-{tenant_id}")
+                create_task_safe(rt_worker.run(stop_event), name=f"realtime-{tenant_id}")
 
                 existing_tenant_ids.add(tenant_id)
                 worker_registry[tenant_id] = True

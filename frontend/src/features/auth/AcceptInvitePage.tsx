@@ -67,7 +67,6 @@ export function AcceptInvitePage() {
       setAuth(
         { id: '', email: '', full_name: fullName.trim(), is_active: true, created_at: '' },
         data.access_token,
-        data.refresh_token,
       )
       setActiveTenant(data.tenant_id)
       navigate('/', { replace: true })
@@ -89,7 +88,6 @@ export function AcceptInvitePage() {
       setAuth(
         { id: '', email: exEmail.trim(), full_name: '', is_active: true, created_at: '' },
         data.access_token,
-        data.refresh_token,
       )
       setActiveTenant(data.tenant_id)
       navigate('/', { replace: true })

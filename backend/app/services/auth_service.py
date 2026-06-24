@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -34,6 +35,11 @@ def _generate_verification_token() -> str:
     return secrets.token_urlsafe(_VERIFICATION_TOKEN_BYTES)
 
 
+def _hash_token_for_storage(token: str) -> str:
+    """SHA-256 hex of a one-time token. Stored in DB; raw token goes in the email link."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 class AuthService:
 
     @staticmethod
@@ -62,10 +68,14 @@ class AuthService:
             password_hash,
             full_name,
             email_verified=False,
-            email_verification_token=verification_token,
+            email_verification_token=_hash_token_for_storage(verification_token),
         )
 
-        token_pair = await AuthService._issue_token_pair(db, user)
+        # Issue a *limited* token pair — access token carries an `unverified`
+        # claim so middleware/guards can restrict sensitive actions until the
+        # email is confirmed.  Full access is granted only after verification
+        # (the /login flow already enforces email_verified == True).
+        token_pair = await AuthService._issue_token_pair(db, user, email_verified=False)
 
         await AuditService.log(
             db,
@@ -104,6 +114,7 @@ class AuthService:
         email: str,
         password: str,
         ip_address: str | None = None,
+        mfa_code: str | None = None,
     ) -> tuple[User, TokenPair]:
         """
         Authenticates a user by email/password.
@@ -138,6 +149,24 @@ class AuthService:
                 details={"code": "EMAIL_NOT_VERIFIED"},
             )
 
+        if user.totp_enabled:
+            if mfa_code is None:
+                raise ForbiddenError(
+                    "Multi-factor authentication is required for this account",
+                    details={"code": "MFA_REQUIRED"},
+                )
+            from app.services.mfa_service import MFAService
+            if not MFAService.verify_totp(user, mfa_code) and not MFAService.verify_backup_code(user, mfa_code):
+                await AuditService.log(
+                    db,
+                    action="user.mfa_failed",
+                    actor_id=user.id,
+                    resource_type="user",
+                    resource_id=user.id,
+                    ip_address=ip_address,
+                )
+                raise UnauthorizedError("Invalid MFA code")
+
         if needs_rehash(user.password_hash):
             user.password_hash = hash_password(password)
             await db.flush([user])
@@ -161,7 +190,7 @@ class AuthService:
         Verifies the email address associated with the given token.
         Raises NotFoundError if the token is invalid or expired.
         """
-        user = await UserService.get_by_verification_token(db, token)
+        user = await UserService.get_by_verification_token(db, _hash_token_for_storage(token))
         if user is None:
             raise NotFoundError("Verification link is invalid or has already been used")
 
@@ -215,7 +244,7 @@ class AuthService:
                 return
 
         new_token = _generate_verification_token()
-        user.email_verification_token = new_token
+        user.email_verification_token = _hash_token_for_storage(new_token)
         user.email_verification_sent_at = datetime.now(tz=timezone.utc)
         await db.flush([user])
 
@@ -256,10 +285,15 @@ class AuthService:
         if user is None or not user.is_active:
             raise UnauthorizedError("User not found or inactive")
 
+        # Issue the new token pair BEFORE revoking the old one.
+        # If _issue_token_pair raises (e.g. DB constraint), the old token
+        # stays valid so the client can retry — otherwise they would be
+        # permanently locked out with no usable token.
+        token_pair = await AuthService._issue_token_pair(db, user)
+
         stored.revoke()
         await db.flush([stored])
 
-        token_pair = await AuthService._issue_token_pair(db, user)
         logger.info("refresh_token_rotated", user_id=str(user_id))
         return token_pair
 
@@ -294,8 +328,18 @@ class AuthService:
     # ─── Private helpers ──────────────────────────────────────────────────────
 
     @staticmethod
-    async def _issue_token_pair(db: AsyncSession, user: User) -> TokenPair:
-        access_token = create_access_token(subject=str(user.id))
+    async def _issue_token_pair(
+        db: AsyncSession,
+        user: User,
+        email_verified: bool | None = None,
+    ) -> TokenPair:
+        # Allow caller to override the verified claim (e.g. during registration
+        # before the user has clicked the link).  Defaults to the DB value.
+        verified = email_verified if email_verified is not None else user.email_verified
+        access_token = create_access_token(
+            subject=str(user.id),
+            extra={"email_verified": verified},
+        )
         refresh_token_str, jti = create_refresh_token(subject=str(user.id))
 
         expire = datetime.now(tz=timezone.utc) + timedelta(
@@ -319,7 +363,7 @@ class AuthService:
     async def forgot_password(db: AsyncSession, email: str) -> None:
         """
         Silently succeeds for unknown/inactive emails to prevent user enumeration.
-        Rate-limited: only 1 reset email allowed per 5-minute window per account.
+        Rate-limited: only 1 reset email allowed per 1-minute window per account.
         """
         user = await UserService.get_by_email(db, email)
         if user is None or not user.is_active:
@@ -340,7 +384,7 @@ class AuthService:
                 return
 
         token = _generate_verification_token()
-        user.password_reset_token = token
+        user.password_reset_token = _hash_token_for_storage(token)
         user.password_reset_sent_at = datetime.now(tz=timezone.utc)
         await db.flush([user])
 
@@ -362,7 +406,7 @@ class AuthService:
         and clears the token so it cannot be reused.
         """
         result = await db.execute(
-            select(User).where(User.password_reset_token == token)
+            select(User).where(User.password_reset_token == _hash_token_for_storage(token))
         )
         user = result.scalar_one_or_none()
 
@@ -381,6 +425,8 @@ class AuthService:
         user.password_hash = hash_password(new_password)
         user.password_reset_token = None
         user.password_reset_sent_at = None
+        revoked = await AuthService._revoke_all_user_sessions(db, user.id)
+        logger.info("sessions_revoked_on_password_reset", user_id=str(user.id), count=revoked)
         await db.flush([user])
 
         await AuditService.log(
@@ -406,6 +452,8 @@ class AuthService:
         if not verify_password(current_password, user.password_hash):
             raise UnauthorizedError("Current password is incorrect")
         user.password_hash = hash_password(new_password)
+        revoked = await AuthService._revoke_all_user_sessions(db, user.id)
+        logger.info("sessions_revoked_on_password_change", user_id=str(user.id), count=revoked)
         await db.flush([user])
         await AuditService.log(
             db,
@@ -414,6 +462,22 @@ class AuthService:
             resource_type="user",
             resource_id=user.id,
         )
+
+    @staticmethod
+    async def _revoke_all_user_sessions(db: AsyncSession, user_id: UUID) -> int:
+        """Revokes all active refresh tokens for a user. Returns count revoked."""
+        from sqlalchemy import update as sa_update
+        from datetime import datetime, timezone
+        result = await db.execute(
+            sa_update(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=datetime.now(tz=timezone.utc))
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount
 
     @staticmethod
     async def _get_refresh_token_by_jti(

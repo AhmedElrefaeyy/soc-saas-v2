@@ -19,6 +19,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
+from app.core.metrics import INVESTIGATIONS_CREATED_TOTAL
 from app.models.investigation import Investigation
 from app.analyst.schemas import (
     InvestigationStatus,
@@ -235,6 +236,9 @@ class CaseService:
         db.add(investigation)
         await db.commit()
         await db.refresh(investigation)
+
+        INVESTIGATIONS_CREATED_TOTAL.labels(tenant_id=str(tenant_id)).inc()
+
         logger.info(
             "manual_investigation_created",
             investigation_id=str(investigation.id),
@@ -246,13 +250,14 @@ class CaseService:
         )
 
         # Auto-generate a playbook in the background using linked alert context
-        import asyncio as _asyncio
+        from app.core.utils import create_task_safe
         from app.workers.investigation_worker import _auto_generate_investigation_playbook
-        _asyncio.create_task(
+        create_task_safe(
             _auto_generate_investigation_playbook(
                 investigation_id=str(investigation.id),
                 tenant_id=str(tenant_id),
-            )
+            ),
+            name=f"auto_playbook_investigation_{investigation.id}",
         )
 
         return investigation

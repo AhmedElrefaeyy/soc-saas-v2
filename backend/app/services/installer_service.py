@@ -309,12 +309,20 @@ class InstallerService:
     @staticmethod
     async def expire_old_tokens(db: AsyncSession) -> int:
         """
-        Bulk-marks PENDING tokens whose expires_at has passed as EXPIRED.
-        Designed to be called periodically by a maintenance worker.
-        Returns count of tokens expired.
+        Bulk-marks stale tokens as terminal states:
+        - PENDING tokens past expires_at → EXPIRED
+        - INSTALLING tokens stuck for >10 min → FAILED
+          (covers network drops between mark_installing and mark_used)
+
+        Returns total count of tokens transitioned.
         """
         now = datetime.now(tz=timezone.utc)
-        result = await db.execute(
+        # Tokens can't still be legitimately installing after 10 minutes —
+        # the bootstrap.ps1 completes in well under 5 minutes even on slow links.
+        installing_cutoff = now - timedelta(minutes=10)
+
+        # PENDING → EXPIRED
+        expired_result = await db.execute(
             update(InstallerToken)
             .where(
                 InstallerToken.status == InstallerTokenStatus.PENDING,
@@ -323,14 +331,29 @@ class InstallerService:
             .values(status=InstallerTokenStatus.EXPIRED)
             .returning(InstallerToken.id)
         )
-        rows = result.fetchall()
-        count = len(rows)
+        expired_count = len(expired_result.fetchall())
 
-        if count:
+        # INSTALLING → FAILED (stuck — network drop during enrollment)
+        failed_result = await db.execute(
+            update(InstallerToken)
+            .where(
+                InstallerToken.status == InstallerTokenStatus.INSTALLING,
+                InstallerToken.used_at < installing_cutoff,
+            )
+            .values(status=InstallerTokenStatus.FAILED)
+            .returning(InstallerToken.id)
+        )
+        failed_count = len(failed_result.fetchall())
+
+        total = expired_count + failed_count
+        if total:
             await db.flush()
-            logger.info("installer_tokens_expired", count=count)
+            if expired_count:
+                logger.info("installer_tokens_expired", count=expired_count)
+            if failed_count:
+                logger.warning("installer_tokens_stuck_installing_failed", count=failed_count)
 
-        return count
+        return total
 
     # ─── Bootstrap enrollment ────────────────────────────────────────────────
 

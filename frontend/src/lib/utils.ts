@@ -58,7 +58,8 @@ const API_ERROR_FALLBACKS: Record<string, string> = {
   NOT_FOUND:           "The requested resource was not found.",
   CONFLICT:            "This action conflicts with existing data.",
   VALIDATION_ERROR:    "Please check the information you entered and try again.",
-  RATE_LIMIT_EXCEEDED: "Too many attempts. Please wait a moment and try again.",
+  RATE_LIMIT_EXCEEDED: "Too many requests — please wait a moment and try again.",
+  PAYLOAD_TOO_LARGE:   "The request is too large (max 10 MiB).",
   SERVICE_UNAVAILABLE: "The service is temporarily unavailable. Please try again shortly.",
   AGENT_LOCKED:        "This agent is currently locked by another operation.",
   INTERNAL_ERROR:      "Something went wrong on our end. Please try again.",
@@ -103,6 +104,7 @@ export function extractApiError(error: unknown): string {
       if (status === 403) return API_ERROR_FALLBACKS.FORBIDDEN;
       if (status === 404) return API_ERROR_FALLBACKS.NOT_FOUND;
       if (status === 409) return API_ERROR_FALLBACKS.CONFLICT;
+      if (status === 413) return API_ERROR_FALLBACKS.PAYLOAD_TOO_LARGE;
       if (status === 422) return API_ERROR_FALLBACKS.VALIDATION_ERROR;
       if (status === 429) return API_ERROR_FALLBACKS.RATE_LIMIT_EXCEEDED;
       if (Number(status) >= 500) return API_ERROR_FALLBACKS.INTERNAL_ERROR;

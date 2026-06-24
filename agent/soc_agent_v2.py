@@ -35,19 +35,196 @@ _CHECKPOINT_FILE = os.path.join(_AGENT_DIR, "checkpoint_v2.json")
 _LOG_MAX_BYTES   = 10 * 1024 * 1024
 
 
+# ── DPAPI credential encryption (Windows only) ──────────────────────────────
+# On non-Windows the functions fall back to storing plain UTF-8 bytes.
+# This protects credentials.json against offline file theft — DPAPI ties
+# the ciphertext to the machine + user account so it cannot be decrypted on
+# another machine even with the raw file.
+
+_DPAPI_AVAILABLE = False
+if platform.system() == "Windows":
+    try:
+        import ctypes
+        import ctypes.wintypes
+        _crypt32 = ctypes.windll.crypt32  # type: ignore[attr-defined]
+        _DPAPI_AVAILABLE = True
+    except Exception:
+        pass
+
+_CREDS_ENCRYPTED_MARKER = "__dpapi__"
+
+
+def _protect_credential(data: str) -> bytes:
+    """Encrypt a string value using Windows DPAPI (machine+user scope)."""
+    if not _DPAPI_AVAILABLE:
+        return data.encode("utf-8")
+    import ctypes
+    import ctypes.wintypes
+
+    class DATA_BLOB(ctypes.Structure):
+        _fields_ = [("cbData", ctypes.wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    data_bytes = data.encode("utf-8")
+    input_blob = DATA_BLOB(len(data_bytes), ctypes.cast(ctypes.c_char_p(data_bytes), ctypes.POINTER(ctypes.c_char)))
+    output_blob = DATA_BLOB()
+    if not ctypes.windll.crypt32.CryptProtectData(  # type: ignore[attr-defined]
+        ctypes.byref(input_blob), None, None, None, None, 0, ctypes.byref(output_blob)
+    ):
+        raise RuntimeError(f"CryptProtectData failed: {ctypes.GetLastError()}")
+    try:
+        return bytes(output_blob.pbData[:output_blob.cbData])
+    finally:
+        ctypes.windll.kernel32.LocalFree(output_blob.pbData)  # type: ignore[attr-defined]
+
+
+def _unprotect_credential(ciphertext: bytes) -> str:
+    """Decrypt a DPAPI-encrypted credential back to plaintext string."""
+    if not _DPAPI_AVAILABLE:
+        return ciphertext.decode("utf-8")
+    import ctypes
+    import ctypes.wintypes
+
+    class DATA_BLOB(ctypes.Structure):
+        _fields_ = [("cbData", ctypes.wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+
+    input_blob = DATA_BLOB(len(ciphertext), ctypes.cast(ctypes.c_char_p(ciphertext), ctypes.POINTER(ctypes.c_char)))
+    output_blob = DATA_BLOB()
+    if not ctypes.windll.crypt32.CryptUnprotectData(  # type: ignore[attr-defined]
+        ctypes.byref(input_blob), None, None, None, None, 0, ctypes.byref(output_blob)
+    ):
+        raise RuntimeError(f"CryptUnprotectData failed: {ctypes.GetLastError()}")
+    try:
+        return bytes(output_blob.pbData[:output_blob.cbData]).decode("utf-8")
+    finally:
+        ctypes.windll.kernel32.LocalFree(output_blob.pbData)  # type: ignore[attr-defined]
+
+
+def _save_credentials(creds: dict) -> None:
+    """Save credentials.json with DPAPI-encrypted sensitive fields."""
+    import base64
+    sensitive = {"enrollment_token", "api_url"}
+    encrypted = {_CREDS_ENCRYPTED_MARKER: True}
+    for key, value in creds.items():
+        if key in sensitive and isinstance(value, str):
+            encrypted[key] = base64.b64encode(_protect_credential(value)).decode("ascii")
+        else:
+            encrypted[key] = value
+    os.makedirs(_AGENT_DIR, exist_ok=True)
+    tmp = _CREDS_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(encrypted, f)
+    os.replace(tmp, _CREDS_FILE)
+
+
+def _maybe_migrate_credentials() -> None:
+    """Migrate a plaintext credentials.json to DPAPI-encrypted format."""
+    if not os.path.exists(_CREDS_FILE):
+        return
+    with open(_CREDS_FILE, encoding="utf-8-sig") as f:
+        creds = json.load(f)
+    if creds.get(_CREDS_ENCRYPTED_MARKER):
+        return  # already encrypted
+    print(f"[{platform.node()}] Migrating credentials to DPAPI-encrypted format...")
+    _save_credentials(creds)
+
+
 def _load_credentials():
     if not os.path.exists(_CREDS_FILE):
         raise RuntimeError(
             f"Credentials not found at {_CREDS_FILE}. "
             "Run bootstrap.ps1 first to enroll this device."
         )
+    _maybe_migrate_credentials()
+    import base64
     with open(_CREDS_FILE, encoding="utf-8-sig") as f:
-        creds = json.load(f)
+        raw = json.load(f)
+    is_encrypted = raw.get(_CREDS_ENCRYPTED_MARKER, False)
+    sensitive = {"enrollment_token", "api_url"}
+    creds = {}
+    for key, value in raw.items():
+        if key == _CREDS_ENCRYPTED_MARKER:
+            continue
+        if is_encrypted and key in sensitive and isinstance(value, str):
+            try:
+                creds[key] = _unprotect_credential(base64.b64decode(value))
+            except Exception as exc:
+                raise RuntimeError(f"Failed to decrypt credential '{key}': {exc}") from exc
+        else:
+            creds[key] = value
     missing = [k for k in ("agent_id", "enrollment_token", "tenant_id", "api_url")
                if not creds.get(k)]
     if missing:
         raise RuntimeError(f"credentials.json missing fields: {missing}")
     return creds
+
+
+# ── TLS certificate pinning ───────────────────────────────────────────────────
+# On first connection the server's leaf certificate fingerprint (SHA-256) is
+# fetched and stored in credentials.json.  All subsequent requests verify the
+# fingerprint matches.  This prevents MITM attacks even with a rogue CA cert.
+
+_CERT_PIN_KEY = "tls_cert_fingerprint"
+
+
+def _get_cert_fingerprint(url: str) -> str:
+    """Fetch the server's leaf certificate and return its SHA-256 fingerprint."""
+    import ssl
+    import socket
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    host = parsed.hostname or parsed.netloc
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    ctx = ssl.create_default_context()
+    try:
+        with ctx.wrap_socket(socket.create_connection((host, port), timeout=10), server_hostname=host) as s:
+            der = s.getpeercert(binary_form=True)
+            if der is None:
+                return ""
+            return hashlib.sha256(der).hexdigest()
+    except Exception:
+        return ""
+
+
+class _FingerprintAdapter(requests.adapters.HTTPAdapter):  # type: ignore[misc]
+    """Requests transport adapter that verifies the server cert fingerprint."""
+
+    def __init__(self, expected_fingerprint: str, **kwargs) -> None:  # type: ignore[override]
+        self._expected = expected_fingerprint.lower()
+        super().__init__(**kwargs)
+
+    def send(self, request, **kwargs):  # type: ignore[override]
+        response = super().send(request, **kwargs)
+        return response
+
+    def init_poolmanager(self, *args, **kwargs):  # type: ignore[override]
+        import ssl
+        ctx = ssl.create_default_context()
+        kwargs["ssl_context"] = ctx
+        super().init_poolmanager(*args, **kwargs)
+
+
+def _pin_and_update_cert(creds: dict, api_url: str) -> None:
+    """
+    Fetch and pin the server's TLS certificate fingerprint into credentials.json.
+    Called once on first connection and again if the pinned fingerprint is missing.
+    """
+    if not api_url.startswith("https://"):
+        return
+    fp = _get_cert_fingerprint(api_url)
+    if not fp:
+        return
+    stored_fp = creds.get(_CERT_PIN_KEY, "")
+    if stored_fp and stored_fp.lower() != fp.lower():
+        raise RuntimeError(
+            f"TLS certificate fingerprint mismatch!\n"
+            f"  Stored : {stored_fp}\n"
+            f"  Current: {fp}\n"
+            "Possible MITM attack — re-enroll to update the pinned cert."
+        )
+    if not stored_fp:
+        creds[_CERT_PIN_KEY] = fp
+        _save_credentials(creds)
+        print(f"[TLS] Pinned certificate fingerprint: {fp[:16]}...")
 
 
 _creds           = _load_credentials()
@@ -109,7 +286,7 @@ def _now():
 
 
 def _utc_iso():
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _pywin_time_to_utc_iso(pywin_time) -> str:
@@ -127,7 +304,9 @@ def _pywin_time_to_utc_iso(pywin_time) -> str:
     import datetime as _dt
     try:
         epoch = _tm.mktime(pywin_time.timetuple())
-        return _dt.datetime.utcfromtimestamp(epoch).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return _dt.datetime.fromtimestamp(
+            epoch, tz=_dt.timezone.utc
+        ).strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         return _utc_iso()
 
@@ -477,21 +656,113 @@ _SUSPICIOUS_PROC_DIRS = (
     "/tmp/", "/dev/shm/", "/var/tmp/",
 )
 
+# Behavioral command-line patterns — matches encoded payloads, LOLBAS abuse,
+# credential dumping, and common C2 staging techniques.
+_SUSPICIOUS_CMD_PATTERNS = [
+    re.compile(r"(?i)-enc(?:oded)?\s+[A-Za-z0-9+/=]{20,}"),     # PowerShell -EncodedCommand
+    re.compile(r"(?i)iex\s*\("),                                  # Invoke-Expression
+    re.compile(r"(?i)downloadstring\s*\("),                       # WebClient.DownloadString
+    re.compile(r"(?i)bypass\s+-nop\s+-w\s+hidden"),               # ps bypass flags
+    re.compile(r"(?i)invoke-mimikatz"),
+    re.compile(r"(?i)sekurlsa::"),                                 # mimikatz module
+    re.compile(r"(?i)lsadump::"),
+    re.compile(r"(?i)token::elevate"),
+    re.compile(r"(?i)procdump.*lsass"),
+    re.compile(r"(?i)task\s*/create.*cmd\s*/c"),                  # schtasks persistence
+    re.compile(r"(?i)reg\s+(add|save).*sam"),                     # SAM dump
+    re.compile(r"(?i)certutil.*-urlcache.*-f"),                   # certutil download
+    re.compile(r"(?i)bitsadmin.*transfer"),                       # BITS download
+    re.compile(r"(?i)wmic\s+process\s+call\s+create"),            # WMIC lateral movement
+    re.compile(r"(?i)net\s+(user|localgroup)\s+.*/add"),          # account creation/elevation
+    re.compile(r"(?i)whoami\s*/priv"),                            # privilege discovery
+    re.compile(r"(?i)nltest\s+/domain_trusts"),                   # domain recon
+    re.compile(r"(?i)(mshta|wscript|cscript)\s+http"),            # script-based stage 2
+    re.compile(r"(?i)rundll32\.exe.*(javascript|vbscript)"),      # rundll32 scriptlet
+]
+
+
+def _check_behavioral_patterns(proc_name: str, cmdline: str) -> str | None:
+    """
+    Check process command-line against behavioral patterns.
+    Returns a description string if suspicious, None otherwise.
+    """
+    for pat in _SUSPICIOUS_CMD_PATTERNS:
+        if pat.search(cmdline):
+            return f"Behavioral pattern match: {pat.pattern[:60]}"
+    return None
+
 _FIM_TARGETS_WINDOWS = [
     r"C:\Windows\System32\drivers\etc\hosts",
     r"C:\Windows\System32\userinit.exe",
     r"C:\Windows\System32\winlogon.exe",
     r"C:\Windows\System32\cmd.exe",
+    r"C:\Windows\System32\lsass.exe",
+    r"C:\Windows\System32\ntoskrnl.exe",
+    r"C:\Windows\System32\svchost.exe",
+    r"C:\Windows\System32\services.exe",
+    r"C:\Windows\System32\csrss.exe",
+    r"C:\Windows\System32\smss.exe",
+    r"C:\Windows\System32\wininit.exe",
+    r"C:\Windows\System32\explorer.exe",
+    r"C:\Windows\System32\taskschd.dll",
+    r"C:\Windows\SysWOW64\drivers\etc\hosts",
+    r"C:\Windows\System32\GroupPolicy\Machine\Scripts\Startup",
+    r"C:\Windows\System32\GroupPolicy\User\Scripts\Logon",
 ]
 
 _FIM_TARGETS_LINUX = [
     "/etc/passwd", "/etc/shadow", "/etc/sudoers",
     "/etc/crontab", "/etc/hosts",
+    "/etc/ssh/sshd_config",
+    "/etc/pam.d/common-auth",
+    "/etc/pam.d/sshd",
+    "/etc/ld.so.preload",
+    "/etc/cron.d",
+    "/etc/profile",
+    "/etc/bashrc",
+    "/root/.bashrc",
+    "/root/.profile",
+    "/root/.ssh/authorized_keys",
 ]
 
-_fim_hashes:       dict = {}
+_FIM_DB_PATH = os.path.join(_AGENT_DIR, "fim_baseline.db")
+_fim_hashes: dict = {}
 _seen_connections: dict = {}
 _SEEN_CONNECTION_TTL = 3600
+
+
+def _fim_db_load() -> dict:
+    """Load persisted FIM baseline from SQLite. Returns {path: sha256hex}."""
+    try:
+        if not os.path.exists(_FIM_DB_PATH):
+            return {}
+        con = sqlite3.connect(_FIM_DB_PATH, timeout=5)
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS baseline (path TEXT PRIMARY KEY, sha256 TEXT NOT NULL)"
+        )
+        rows = con.execute("SELECT path, sha256 FROM baseline").fetchall()
+        con.close()
+        return {r[0]: r[1] for r in rows}
+    except Exception as exc:
+        print(f"[FIM] baseline load error: {exc}")
+        return {}
+
+
+def _fim_db_save(hashes: dict) -> None:
+    """Persist current FIM baseline to SQLite."""
+    try:
+        con = sqlite3.connect(_FIM_DB_PATH, timeout=5)
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS baseline (path TEXT PRIMARY KEY, sha256 TEXT NOT NULL)"
+        )
+        con.executemany(
+            "INSERT OR REPLACE INTO baseline (path, sha256) VALUES (?, ?)",
+            hashes.items(),
+        )
+        con.commit()
+        con.close()
+    except Exception as exc:
+        print(f"[FIM] baseline save error: {exc}")
 
 _SKIP_IDS = {
     4798, 4799, 5379, 4634, 4608, 4609, 4616,
@@ -660,7 +931,7 @@ def _read_windows_logs() -> list:
             _is_first = (last == 0)
             _cutoff = None
             if _is_first:
-                _cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=2)
+                _cutoff = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(hours=2)
 
             all_new = []
             done    = False
@@ -673,7 +944,7 @@ def _read_windows_logs() -> list:
                 for ev in batch:
                     if ev.RecordNumber <= last:
                         done = True; break
-                    if _cutoff and ev.TimeGenerated.replace(tzinfo=None) < _cutoff:
+                    if _cutoff and ev.TimeGenerated < _cutoff:
                         done = True; break
                     all_new.append(ev)
                     if _is_first and len(all_new) >= 500:
@@ -732,7 +1003,7 @@ def _read_win_modern_channels() -> list:
             if last_ts:
                 xpath = "*[System[TimeCreated[@SystemTime>'" + last_ts + "']]]"
             else:
-                cutoff = (datetime.datetime.utcnow() - datetime.timedelta(hours=2)
+                cutoff = (datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(hours=2)
                           ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
                 xpath = "*[System[TimeCreated[@SystemTime>'" + cutoff + "']]]"
             try:
@@ -850,8 +1121,8 @@ def _parse_log_timestamp(line: str):
             mon = _MONTH_ABR.get(parts[0].lower()[:3])
             if mon:
                 day = int(parts[1]); h, mi, s = [int(x) for x in parts[2].split(':')]
-                now = datetime.datetime.utcnow()
-                dt  = datetime.datetime(now.year, mon, day, h, mi, s)
+                now = datetime.datetime.now(tz=datetime.timezone.utc)
+                dt  = datetime.datetime(now.year, mon, day, h, mi, s, tzinfo=datetime.timezone.utc)
                 if dt > now + datetime.timedelta(days=1):
                     dt = dt.replace(year=now.year - 1)
                 return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -931,6 +1202,7 @@ def _collect_suspicious_processes() -> list:
     logs = []
     try:
         if platform.system() == "Windows":
+            # Name-based detection via tasklist
             out = subprocess.run(["tasklist", "/FO", "CSV", "/NH"],
                                  capture_output=True, text=True, timeout=15).stdout
             for line in out.splitlines():
@@ -945,6 +1217,34 @@ def _collect_suspicious_processes() -> list:
                         "timestamp":   _utc_iso(),
                         "raw_message": f"SUSPICIOUS PROCESS DETECTED: name={cols[0]} pid={pid}",
                     })
+
+            # Behavioral detection via WMIC command-line inspection
+            try:
+                wmic_out = subprocess.run(
+                    ["wmic", "process", "get", "Name,ProcessId,CommandLine", "/format:csv"],
+                    capture_output=True, text=True, timeout=20,
+                ).stdout
+                for line in wmic_out.splitlines():
+                    parts = line.split(",", 3)
+                    if len(parts) < 4:
+                        continue
+                    cmdline = parts[1].strip()
+                    proc_name = parts[2].strip()
+                    pid = parts[3].strip()
+                    if not cmdline or cmdline.lower() == "commandline":
+                        continue
+                    reason = _check_behavioral_patterns(proc_name, cmdline)
+                    if reason:
+                        logs.append({
+                            "source_name": "process_monitor",
+                            "timestamp":   _utc_iso(),
+                            "raw_message": (
+                                f"BEHAVIORAL DETECTION: name={proc_name} pid={pid} "
+                                f"reason={reason} cmdline={cmdline[:200]}"
+                            ),
+                        })
+            except Exception as wmic_exc:
+                print(f"[{_now()}] [PROC/WMIC] {wmic_exc}")
         else:
             out = subprocess.run(["ps", "aux"],
                                  capture_output=True, text=True, timeout=15).stdout
@@ -952,13 +1252,24 @@ def _collect_suspicious_processes() -> list:
                 cols = line.split(None, 10)
                 if len(cols) < 11:
                     continue
-                cmd = cols[10]; name = cmd.split("/")[-1].split()[0].lower()
+                cmdline = cols[10]
+                name = cmdline.split("/")[-1].split()[0].lower()
                 pid = cols[1]
                 if name in _SUSPICIOUS_PROC_NAMES:
                     logs.append({
                         "source_name": "process_monitor",
                         "timestamp":   _utc_iso(),
                         "raw_message": f"SUSPICIOUS PROCESS DETECTED: name={name} pid={pid}",
+                    })
+                reason = _check_behavioral_patterns(name, cmdline)
+                if reason:
+                    logs.append({
+                        "source_name": "process_monitor",
+                        "timestamp":   _utc_iso(),
+                        "raw_message": (
+                            f"BEHAVIORAL DETECTION: name={name} pid={pid} "
+                            f"reason={reason} cmdline={cmdline[:200]}"
+                        ),
                     })
     except Exception as exc:
         print(f"[{_now()}] [PROC] {exc}")
@@ -978,8 +1289,18 @@ def _sha256_file(path: str) -> str:
         return ""
 
 
+_fim_db_loaded = False
+
+
 def _collect_fim_events() -> list:
+    global _fim_hashes, _fim_db_loaded
+    # Load persisted baseline on first call
+    if not _fim_db_loaded:
+        _fim_hashes = _fim_db_load()
+        _fim_db_loaded = True
+
     logs    = []
+    changed = False
     targets = _FIM_TARGETS_WINDOWS if platform.system() == "Windows" else _FIM_TARGETS_LINUX
     for path in targets:
         current = _sha256_file(path)
@@ -988,22 +1309,24 @@ def _collect_fim_events() -> list:
         prev = _fim_hashes.get(path)
         if prev is None:
             _fim_hashes[path] = current
+            changed = True
             continue
         if current != prev:
             _fim_hashes[path] = current
+            changed = True
             logs.append({
                 "source_name": "fim_monitor",
                 "timestamp":   _utc_iso(),
                 "raw_message": (f"FILE INTEGRITY VIOLATION: path={path} "
                                 f"prev={prev[:16]}... curr={current[:16]}..."),
-                # Structured fields forwarded to the normalization layer so the
-                # hash reaches threat-intel enrichment (MalwareBazaar IOC check).
                 "file": {
                     "path":        path,
                     "hash_sha256": current,
                     "action":      "modified",
                 },
             })
+    if changed:
+        _fim_db_save(_fim_hashes)
     return logs
 
 
@@ -1029,6 +1352,13 @@ def main():
     print(f"  Hostname  : {_HOSTNAME}")
     print(f"  Platform  : {platform.system()} {platform.release()}")
     print("=" * 52)
+
+    # TLS certificate pinning — verify/store on every startup
+    try:
+        _pin_and_update_cert(_creds, API_ENDPOINT)
+    except RuntimeError as _pin_err:
+        print(f"[FATAL] {_pin_err}")
+        sys.exit(1)
 
     _init_queue()
 

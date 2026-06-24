@@ -59,11 +59,28 @@ async def chat(
     # Normalise mode
     mode = payload.mode if payload.mode in CHAT_MODES else "deep_dive"
 
-    # Parse investigation_id
+    # Parse investigation_id and verify it belongs to the calling tenant.
     inv_uuid: UUID | None = None
     if payload.investigation_id:
         try:
-            inv_uuid = UUID(payload.investigation_id)
+            parsed = UUID(payload.investigation_id)
+            # Verify ownership before passing to build_soc_context.
+            from app.models.investigation import Investigation
+            owned = await db.scalar(
+                select(Investigation.id).where(
+                    Investigation.id == parsed,
+                    Investigation.tenant_id == m.tenant_id,
+                    Investigation.deleted_at.is_(None),
+                )
+            )
+            if owned is not None:
+                inv_uuid = parsed
+            else:
+                log.warning(
+                    "copilot_investigation_id_tenant_mismatch",
+                    investigation_id=str(parsed),
+                    tenant_id=str(m.tenant_id),
+                )
         except ValueError:
             inv_uuid = None
 
@@ -92,11 +109,15 @@ async def chat(
 
     system_prompt = build_system_prompt(mode, soc_context, history_text)
 
+    # Sanitize user message before sending to LLM
+    from app.ai.prompt_guard import sanitize_user_message
+    safe_message = sanitize_user_message(payload.message)
+
     # Call LLM
     try:
         manager = get_llm_manager()
         response_text = await manager.generate(
-            prompt=payload.message,
+            prompt=safe_message,
             system_prompt=system_prompt,
             max_tokens=2048,
         )
@@ -107,13 +128,13 @@ async def chat(
             "Please check your GROQ_API_KEY / GEMINI_API_KEY configuration and try again."
         )
 
-    # Persist both messages
+    # Persist both messages (store sanitized version)
     user_msg = ChatMessage(
         tenant_id=m.tenant_id,
         user_id=m.user_id,
         investigation_id=inv_uuid,
         role="user",
-        content=payload.message,
+        content=safe_message,
     )
     asst_msg = ChatMessage(
         tenant_id=m.tenant_id,

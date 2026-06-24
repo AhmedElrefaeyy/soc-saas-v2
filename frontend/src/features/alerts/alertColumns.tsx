@@ -2,11 +2,44 @@ import { memo } from "react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { createColumnHelper } from "@tanstack/react-table";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Shield, User, Monitor, Tag, Brain, Link2 } from "lucide-react";
+import { Shield, User, Monitor, Tag, Brain, Link2, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge, SeverityBadge } from "@/components/ui/Badge";
 import { Checkbox } from "@/components/ui/Checkbox";
 import type { Alert, AlertStatus, AIVerdictType } from "./types";
+
+// ─── SLA thresholds ───────────────────────────────────────────────────────────
+
+const SLA_WARN_MS = 2  * 60 * 60 * 1000;   // 2 h
+const SLA_CRIT_MS = 8  * 60 * 60 * 1000;   // 8 h
+
+const SLA_TERMINAL = new Set<AlertStatus>(["closed", "false_positive"]);
+
+function SLABadge({ alert }: { alert: Alert }) {
+  const isTerminal = SLA_TERMINAL.has(alert.status);
+  const startMs    = new Date(alert.createdAt).getTime();
+  const endMs      = isTerminal && alert.closedAt
+    ? new Date(alert.closedAt).getTime()
+    : Date.now();
+  const elapsed = endMs - startMs;
+  const h = Math.floor(elapsed / 3_600_000);
+  const m = Math.floor((elapsed % 3_600_000) / 60_000);
+  const label = h > 0 ? `${h}h${m}m` : `${m}m`;
+  const isCrit = elapsed >= SLA_CRIT_MS;
+  const isWarn = !isCrit && elapsed >= SLA_WARN_MS;
+
+  return (
+    <div className={cn(
+      "flex items-center gap-1 px-1.5 py-0.5 rounded text-2xs font-mono font-bold whitespace-nowrap",
+      isCrit ? "bg-red-500/15 text-red-400 border border-red-500/20" :
+      isWarn ? "bg-amber-500/15 text-amber-400 border border-amber-500/20" :
+               "bg-bg-elevated text-text-muted border border-border",
+    )}>
+      <Clock size={9} />
+      {label}
+    </div>
+  );
+}
 
 const helper = createColumnHelper<Alert>();
 
@@ -270,7 +303,21 @@ export const alertColumns = [
     ),
   }),
 
-  // 14. Tags
+  // 14. SLA
+  helper.display({
+    id: "sla",
+    size: 80,
+    header: () => (
+      <div className="flex items-center gap-1">
+        <Clock className="w-3 h-3" />
+        SLA
+      </div>
+    ),
+    enableSorting: false,
+    cell: ({ row }) => <SLABadge alert={row.original} />,
+  }),
+
+  // 15. Tags
   helper.accessor("tags", {
     id: "tags",
     size: 140,
