@@ -309,7 +309,7 @@ function InvRow({ inv, onClick }: { inv: InvestigationListItem; onClick: () => v
                 fontSize: 9, fontWeight: 700, color: "#fff", flexShrink: 0,
               }}>
               {inv.assigned_to_name
-                ? inv.assigned_to_name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)
+                ? inv.assigned_to_name.split(" ").filter(Boolean).map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)
                 : inv.assigned_to.slice(0, 2).toUpperCase()}
             </div>
             {inv.assigned_to_name && (

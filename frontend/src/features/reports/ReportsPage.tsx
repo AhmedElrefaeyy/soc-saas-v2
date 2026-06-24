@@ -428,10 +428,10 @@ function ComplianceTab() {
             {report.controls?.length > 0 && (
               <div style={{ background: '#0D0D0D', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 8, padding: '16px 18px', marginBottom: 16 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1.5px', color: '#5C6373', marginBottom: 14 }}>
-                  Framework Controls ({report.controls.filter((c: ComplianceControl) => c.status === 'pass').length}/{report.controls.length} passing)
+                  Framework Controls ({(report.controls ?? []).filter((c: ComplianceControl) => c.status === 'pass').length}/{(report.controls ?? []).length} passing)
                 </div>
                 <div style={{ display: 'grid', gap: 8 }}>
-                  {report.controls.map((ctrl: ComplianceControl) => {
+                  {(report.controls ?? []).map((ctrl: ComplianceControl) => {
                     const sc = ctrl.status === 'pass' ? { icon: CheckCircle, color: '#10B981' } : ctrl.status === 'fail' ? { icon: XCircle, color: '#EF4444' } : { icon: MinusCircle, color: '#F59E0B' }
                     const Icon = sc.icon
                     return (

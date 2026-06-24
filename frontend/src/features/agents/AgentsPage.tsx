@@ -442,7 +442,7 @@ function AgentDrawer({ agent, onClose, onDelete }: {
               <div style={{
                 display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 20,
               }}>
-                {agent.tags.map(tag => (
+                {(agent.tags ?? []).map(tag => (
                   <span key={tag} style={{
                     padding: '2px 8px', borderRadius: 4,
                     fontSize: 10, color: '#8B95A7',

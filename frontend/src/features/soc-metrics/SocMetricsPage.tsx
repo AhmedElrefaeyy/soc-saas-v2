@@ -366,7 +366,7 @@ function SummaryKPIs() {
   const critMttr      = mttr?.find((r) => r.severity === "critical")?.mean_minutes ?? 0;
   const latestBreach  = sla?.[sla.length - 1]?.crit_breach_pct ?? 0;
   const totalVerdict  = verdict ? (verdict.true_positive + verdict.false_positive + verdict.benign + verdict.unknown) : 0;
-  const tpRate        = totalVerdict > 0 ? Math.round((verdict!.true_positive / totalVerdict) * 100) : 0;
+  const tpRate        = totalVerdict > 0 ? Math.round(((verdict?.true_positive ?? 0) / totalVerdict) * 100) : 0;
 
   const kpis = [
     { icon: Clock,         label: "Crit MTTR",    value: critMttr >= 60 ? `${(critMttr / 60).toFixed(1)}h` : `${Math.round(critMttr)}m`, sub: "target < 1h",    color: critMttr > 60 ? "#EF4444" : "#10B981"  },

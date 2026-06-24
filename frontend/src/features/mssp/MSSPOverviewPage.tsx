@@ -189,7 +189,7 @@ export function MSSPOverviewPage() {
     const order = { red: 0, amber: 1, green: 2 };
     return (order[a.breach_status as keyof typeof order] ?? 2) - (order[b.breach_status as keyof typeof order] ?? 2);
   });
-  const chartTenantNames = data?.tenants.map((t) => t.tenant_name) ?? [];
+  const chartTenantNames = data?.tenants?.map((t) => t.tenant_name) ?? [];
 
   return (
     <div className="pb-6">
@@ -197,7 +197,7 @@ export function MSSPOverviewPage() {
         <div>
           <h1 className="text-xl font-extrabold text-text-primary font-display">MSSP Portal</h1>
           <p className="text-xs text-text-muted mt-0.5">
-            Cross-tenant health overview — <span className="text-text-secondary font-semibold">{data?.tenants.length ?? 0} workspaces</span>
+            Cross-tenant health overview — <span className="text-text-secondary font-semibold">{data?.tenants?.length ?? 0} workspaces</span>
           </p>
         </div>
         <button onClick={() => setCreateOpen(true)} className="btn btn-primary btn-sm flex items-center gap-1.5">
