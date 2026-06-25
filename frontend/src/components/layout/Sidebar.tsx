@@ -5,6 +5,7 @@ import {
   Sparkles, Monitor, Settings, LogOut, BookOpen, FileBarChart, Download,
   Upload, Network, BarChart3, Server, UserSearch, ScrollText, EyeOff,
   Globe, Swords, Building2, Wifi, FileCheck, PanelLeftOpen, PanelLeftClose,
+  User, Users, Key, Zap, Gauge, BellRing,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useTenantStore } from "@/stores/tenantStore";
@@ -46,6 +47,8 @@ interface NavItemDef {
   label: string;
   badge?: string | number | null;
   badgeColor?: "red" | "green" | "blue";
+  sectionLabel?: string;   // render a section divider above this item
+  tabParam?: string;       // settings items: active when ?tab=<tabParam>
 }
 
 interface CategoryDef {
@@ -173,9 +176,31 @@ function RailItem({
   );
 }
 
+// ─── Panel section divider ────────────────────────────────────────────────────
+
+function PanelSection({ label }: { label: string }) {
+  return (
+    <div style={{
+      padding: "10px 14px 3px",
+      fontSize: 8,
+      fontWeight: 700,
+      letterSpacing: "1.5px",
+      textTransform: "uppercase" as const,
+      color: "#2D3748",
+      fontFamily: "'JetBrains Mono', monospace",
+    }}>
+      {label}
+    </div>
+  );
+}
+
 // ─── Panel nav item ───────────────────────────────────────────────────────────
 
-function PanelItem({ to, icon: Icon, label, badge, badgeColor = "blue" }: NavItemDef) {
+function PanelItem({
+  to, icon: Icon, label, badge, badgeColor = "blue", isActiveOverride,
+}: NavItemDef & { isActiveOverride?: boolean }) {
+  const navigate = useNavigate();
+
   const badgeBg =
     badgeColor === "red"   ? "rgba(239,68,68,0.15)"  :
     badgeColor === "green" ? "rgba(16,185,129,0.15)" :
@@ -190,39 +215,53 @@ function PanelItem({ to, icon: Icon, label, badge, badgeColor = "blue" }: NavIte
       ? badge > 999 ? "999+" : badge > 0 ? badge : null
       : badge;
 
+  const rowStyle = (isActive: boolean) => ({
+    display: "flex" as const,
+    alignItems: "center" as const,
+    gap: 8,
+    padding: "6px 12px 6px 14px",
+    margin: "1px 6px 1px 0",
+    fontSize: 12.5,
+    fontWeight: isActive ? 500 : 400,
+    color: isActive ? "#E2E8F0" : "#6B7280",
+    background: isActive ? "rgba(59,130,246,0.08)" : "transparent",
+    borderLeft: `2px solid ${isActive ? "#3B82F6" : "transparent"}`,
+    transition: "all 100ms",
+    borderRadius: "0 4px 4px 0",
+  });
+
+  const rowContent = (isActive: boolean) => (
+    <>
+      <Icon size={13} style={{ opacity: isActive ? 0.85 : 0.38, color: isActive ? "#60A5FA" : "inherit", flexShrink: 0 }} />
+      <span style={{ flex: 1 }}>{label}</span>
+      {displayBadge != null && (
+        <span style={{
+          padding: "1px 5px", borderRadius: 9999, fontSize: 9, fontWeight: 700,
+          fontFamily: "'JetBrains Mono', monospace", background: badgeBg, color: badgeFg,
+        }}>
+          {displayBadge}
+        </span>
+      )}
+    </>
+  );
+
+  if (isActiveOverride !== undefined) {
+    return (
+      <button
+        onClick={() => navigate(to)}
+        style={{ ...rowStyle(isActiveOverride), border: "none", cursor: "pointer", width: "calc(100% - 6px)", textAlign: "left" as const }}
+      >
+        {rowContent(isActiveOverride)}
+      </button>
+    );
+  }
+
   return (
     <NavLink
       to={to}
-      style={({ isActive }) => ({
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 12px 6px 14px",
-        margin: "1px 6px 1px 0",
-        fontSize: 12.5,
-        fontWeight: isActive ? 500 : 400,
-        color: isActive ? "#E2E8F0" : "#6B7280",
-        background: isActive ? "rgba(59,130,246,0.08)" : "transparent",
-        borderLeft: `2px solid ${isActive ? "#3B82F6" : "transparent"}`,
-        transition: "all 100ms",
-        textDecoration: "none",
-        borderRadius: "0 4px 4px 0",
-      })}
+      style={({ isActive }) => ({ ...rowStyle(isActive), textDecoration: "none" })}
     >
-      {({ isActive }) => (
-        <>
-          <Icon size={13} style={{ opacity: isActive ? 0.85 : 0.38, color: isActive ? "#60A5FA" : "inherit", flexShrink: 0 }} />
-          <span style={{ flex: 1 }}>{label}</span>
-          {displayBadge != null && (
-            <span style={{
-              padding: "1px 5px", borderRadius: 9999, fontSize: 9, fontWeight: 700,
-              fontFamily: "'JetBrains Mono', monospace", background: badgeBg, color: badgeFg,
-            }}>
-              {displayBadge}
-            </span>
-          )}
-        </>
-      )}
+      {({ isActive }) => rowContent(isActive)}
     </NavLink>
   );
 }
@@ -251,6 +290,7 @@ export function Sidebar() {
 
   const currentCategory = pathToCategory(location.pathname);
   const [activeCategory, setActiveCategory] = useState(currentCategory);
+  const settingsTab = new URLSearchParams(location.search).get("tab") || "profile";
 
   useEffect(() => {
     setActiveCategory(currentCategory);
@@ -310,7 +350,22 @@ export function Sidebar() {
         ...(hasRole("admin") ? [{ to: "/mssp",      icon: Building2,  label: "MSSP Portal" }] : []),
       ],
     },
-    { id: "settings", icon: Settings, label: "Settings", direct: "/settings" },
+    {
+      id: "settings", icon: Settings, label: "Settings",
+      items: [
+        { to: "/settings", icon: User,      label: "Profile",             tabParam: "profile",             sectionLabel: "ACCOUNT"        },
+        { to: "/settings", icon: Bell,      label: "Notifications",       tabParam: "notifications"                                        },
+        { to: "/settings", icon: Monitor,   label: "Display",             tabParam: "display"                                              },
+        ...(hasRole("admin") ? [{ to: "/settings", icon: Building2, label: "Organization",       tabParam: "org",                   sectionLabel: "ADMINISTRATION" }] : []),
+        { to: "/settings", icon: Users,     label: "Members",             tabParam: "members"                                              },
+        ...(hasRole("admin") ? [{ to: "/settings", icon: Key,       label: "API Keys",           tabParam: "api-keys"                                             }] : []),
+        ...(hasRole("admin") ? [{ to: "/settings", icon: BellRing,  label: "Alert Routing",      tabParam: "notification-rules",    sectionLabel: "OPERATIONS"     }] : []),
+        ...(hasRole("admin") ? [{ to: "/settings", icon: BarChart3, label: "Severity Thresholds",tabParam: "severity-thresholds"                                  }] : []),
+        ...(hasRole("admin") ? [{ to: "/settings", icon: Zap,       label: "Automation",         tabParam: "automation"                                           }] : []),
+        ...(hasRole("admin") ? [{ to: "/settings", icon: Network,   label: "Integrations",       tabParam: "ticketing",             sectionLabel: "PLATFORM"       }] : []),
+        ...(hasRole("admin") ? [{ to: "/settings", icon: Gauge,     label: "Quota & Usage",      tabParam: "quota"                                                }] : []),
+      ],
+    },
   ];
 
   const activeDef = CATEGORIES.find((c) => c.id === activeCategory);
@@ -454,13 +509,17 @@ export function Sidebar() {
 
         {/* Panel items */}
         <nav style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "10px 0" }}>
-          {activeDef?.direct ? (
-            <PanelItem to={activeDef.direct} icon={activeDef.icon} label={activeDef.label} />
-          ) : (
-            activeDef?.items?.map((item) => (
-              <PanelItem key={item.to} {...item} />
-            ))
-          )}
+          {activeDef?.items?.map((item, i) => {
+            const isActiveOverride = item.tabParam !== undefined
+              ? settingsTab === item.tabParam
+              : undefined;
+            return (
+              <div key={item.to + (item.tabParam ?? "") + i}>
+                {item.sectionLabel && <PanelSection label={item.sectionLabel} />}
+                <PanelItem {...item} isActiveOverride={isActiveOverride} />
+              </div>
+            );
+          })}
         </nav>
 
         {/* Tenant + role */}
