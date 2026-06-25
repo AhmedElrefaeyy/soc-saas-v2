@@ -289,13 +289,13 @@ def _to_v2_format(v1_events: list) -> list:
                     if v and v not in ("-", ""):
                         payload[k] = v
             else:
-                # Classic Security log: map human-readable labels → Windows field names
+                # Classic Security log: map human-readable labels -> Windows field names
                 for label, value in fields.items():
                     win_field = _LABEL_TO_FIELD.get(label)
                     if win_field and value and value not in ("-", ""):
                         payload[win_field] = value
 
-        # Resolve source IP — promote to top-level source_ip for enrichment
+        # Resolve source IP -- promote to top-level source_ip for enrichment
         src_ip = payload.pop("__src_ip", None) or payload.pop("IpAddress", None)
         if src_ip and src_ip not in ("-", "::1", "127.0.0.1", "0.0.0.0", ""):
             payload["source_ip"] = src_ip

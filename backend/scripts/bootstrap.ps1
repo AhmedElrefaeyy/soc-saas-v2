@@ -171,6 +171,32 @@ try {
 
 Write-OK "Agent script saved to $AGENT_FILE"
 
+# ── Step 5b: Verify downloaded script is valid Python ────────────────────────
+Write-Step "Verifying agent script integrity..."
+
+# Quick ASCII-available Python for syntax check — if Python isn't on PATH yet
+# we skip here and verify again after Step 6 installs it.
+$quickPy = $null
+foreach ($cmd in @("python", "py", "python3")) {
+    try {
+        $p = (Get-Command $cmd -ErrorAction Stop).Source
+        if ($p -and $p -notlike "*WindowsApps*") { $quickPy = $p; break }
+    } catch {}
+}
+
+if ($quickPy) {
+    $syntaxCheck = & $quickPy -W error -m py_compile $AGENT_FILE 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        # Script failed syntax check — the server served a broken file.
+        # Delete the corrupted download so we don't silently run it.
+        Remove-Item $AGENT_FILE -Force -ErrorAction SilentlyContinue
+        Write-Fail "Downloaded agent script has Python syntax errors.`n  This is a server-side issue — please contact support.`n  Details: $syntaxCheck"
+    }
+    Write-OK "Agent script syntax OK"
+} else {
+    Write-Host "[bootstrap] INFO  Python not on PATH yet — syntax check deferred to post-install step" -ForegroundColor DarkGray
+}
+
 # ── Step 6: Find / provision Python ──────────────────────────────────────────
 Write-Step "Locating Python runtime..."
 
@@ -277,6 +303,18 @@ if ($win32Check -ne "ok") {
 }
 
 Write-OK "Dependencies OK (requests + pywin32)"
+
+# Deferred syntax check: now that we have a confirmed Python, re-verify.
+# Catches the case where the quick check was skipped because Python wasn't on PATH yet.
+if (-not $quickPy) {
+    Write-Step "Verifying agent script integrity (deferred)..."
+    $syntaxCheck = & $pythonExe -W error -m py_compile $AGENT_FILE 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item $AGENT_FILE -Force -ErrorAction SilentlyContinue
+        Write-Fail "Downloaded agent script has Python syntax errors.`n  This is a server-side issue.`n  Details: $syntaxCheck"
+    }
+    Write-OK "Agent script syntax OK (deferred check)"
+}
 
 # Use pythonw.exe (windowless) for the scheduled task if available
 $pythonwExe = $pythonExe -replace 'python\.exe$', 'pythonw.exe'

@@ -1,0 +1,39 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.py]
+indent_style = space
+indent_size = 4
+# Explicitly disable smart-quote substitution — editors (VS Code, JetBrains)
+# respect this flag and will not replace " with Unicode curly quotes.
+# This prevents the class of corruption seen in June 2026 (issue #soc-saas-v2).
+quote_type = double
+
+[*.{ts,tsx,js,jsx}]
+indent_style = space
+indent_size = 2
+quote_type = double
+
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.{json,jsonc}]
+indent_style = space
+indent_size = 2
+
+[*.ps1]
+indent_style = space
+indent_size = 4
+charset = utf-8
+
+[*.md]
+trim_trailing_whitespace = false
+
+[Makefile]
+indent_style = tab

@@ -55,18 +55,39 @@ async def download_bootstrap_script() -> PlainTextResponse:
 @router.get("/soc_agent_v2.py", include_in_schema=False)
 async def download_agent_script() -> PlainTextResponse:
     """Serves the V2 Python agent script for download. Public — no auth required.
-    The script contains no secrets; credentials are issued during enrollment."""
+    The script contains no secrets; credentials are issued during enrollment.
+
+    Guard: validates Python syntax before serving so a corrupted script
+    (e.g. smart-quote substitution, encoding mojibake) can never reach a client.
+    """
+    import ast as _ast
     path = os.path.join(_SCRIPTS_DIR, "soc_agent_v2.py")
     try:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
-        return PlainTextResponse(
-            content=content,
-            media_type="application/octet-stream",
-            headers={"Content-Disposition": 'attachment; filename="soc_agent_v2.py"'},
-        )
     except FileNotFoundError:
         return PlainTextResponse("# soc_agent_v2.py not found", status_code=404)
+
+    try:
+        _ast.parse(content)
+    except SyntaxError as exc:
+        logger.error(
+            "agent_script_syntax_error",
+            file=path,
+            line=exc.lineno,
+            msg=str(exc),
+        )
+        return PlainTextResponse(
+            f"# DEPLOYMENT ERROR: agent script has a syntax error on line {exc.lineno}.\n"
+            f"# {exc.msg} — fix backend/scripts/soc_agent_v2.py and redeploy.\n",
+            status_code=500,
+        )
+
+    return PlainTextResponse(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": 'attachment; filename="soc_agent_v2.py"'},
+    )
 
 # Rate limit: 50 token generations per hour per tenant
 _RATE_LIMIT = 50

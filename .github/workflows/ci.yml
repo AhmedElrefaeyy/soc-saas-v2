@@ -154,6 +154,69 @@ jobs:
       - name: TypeScript type check
         run: npm run type-check
 
+  # ─── Agent Script Integrity Check ────────────────────────────────────────────
+  # Prevents serving a syntactically-broken agent script to end users.
+  # Root cause of June 2026 outage: smart-quote substitution + encoding mojibake
+  # in soc_agent_v2.py went undetected because scripts/ was excluded from linting.
+  agent-script-check:
+    name: Agent Script — Syntax & Encoding Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Verify soc_agent_v2.py — Python syntax
+        run: python -W error -m py_compile backend/scripts/soc_agent_v2.py
+
+      - name: Verify soc_agent_v2.py — no curly/smart quotes
+        run: |
+          python - << 'EOF'
+          import sys
+          path = "backend/scripts/soc_agent_v2.py"
+          src = open(path, encoding="utf-8").read()
+          bad = [(i+1, hex(ord(c))) for i, c in enumerate(src) if ord(c) in (0x201C, 0x201D, 0x2018, 0x2019)]
+          if bad:
+              print(f"FAIL: {len(bad)} smart-quote characters found in {path}")
+              for lineno_approx, cp in bad[:10]:
+                  print(f"  char {lineno_approx}: {cp}")
+              sys.exit(1)
+          print(f"OK: no smart-quote characters in {path}")
+          EOF
+
+      - name: Verify soc_agent_v2.py — no UTF-8/Windows-1252 mojibake
+        run: |
+          python - << 'EOF'
+          import sys
+          path = "backend/scripts/soc_agent_v2.py"
+          src = open(path, encoding="utf-8").read()
+          # mojibake pattern: U+00E2 followed by U+20AC is a signature of
+          # CP1252-decoded UTF-8 multi-byte sequences (e.g. EM DASH, box-drawing chars)
+          mojibake = [i+1 for i in range(len(src)-1)
+                      if ord(src[i]) == 0x00E2 and ord(src[i+1]) == 0x20AC]
+          if mojibake:
+              print(f"FAIL: mojibake sequences found at positions: {mojibake[:10]}")
+              sys.exit(1)
+          print(f"OK: no mojibake sequences in {path}")
+          EOF
+
+      - name: Verify bootstrap.ps1 — UTF-8 encoding
+        run: |
+          python - << 'EOF'
+          import sys
+          path = "backend/scripts/bootstrap.ps1"
+          try:
+              open(path, encoding="utf-8").read()
+              print(f"OK: {path} is valid UTF-8")
+          except UnicodeDecodeError as e:
+              print(f"FAIL: {path} is not valid UTF-8: {e}")
+              sys.exit(1)
+          EOF
+
   # ─── Docker Build Check ───────────────────────────────────────────────────────
   docker-build:
     name: Docker — Build Check
@@ -171,7 +234,7 @@ jobs:
   deploy-staging:
     name: Deploy — Staging
     runs-on: ubuntu-latest
-    needs: [backend-lint, backend-unit-tests, frontend-lint, docker-build]
+    needs: [backend-lint, backend-unit-tests, frontend-lint, docker-build, agent-script-check]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: staging
 
