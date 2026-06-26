@@ -233,14 +233,11 @@ function TokenRow({
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
       onClick={onClick}
-      className={cn(
-        "table-row-hover border-b border-border last:border-0",
-        isSuperseded && "opacity-45",
-      )}
+      className="table-row-hover border-b border-border last:border-0"
     >
       {/* Token preview */}
       <td className="px-4 py-3">
-        <span className="font-mono text-xs text-text-secondary">
+        <span className={cn("font-mono text-xs", isSuperseded ? "text-text-muted" : "text-text-secondary")}>
           {token.token_preview}
           <span className="text-text-muted">…</span>
         </span>
@@ -248,40 +245,43 @@ function TokenRow({
 
       {/* Machine */}
       <td className="px-4 py-3">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-xs font-medium text-text-primary">
-            {token.machine_name}
-          </span>
-          {isSuperseded && (
-            <span className="inline-flex items-center gap-1 text-2xs text-text-muted">
-              <RotateCcw className="w-2.5 h-2.5" />
-              Superseded by re-enrollment
-            </span>
-          )}
-        </div>
+        <span className={cn("text-xs font-medium", isSuperseded ? "text-text-muted" : "text-text-primary")}>
+          {token.machine_name}
+        </span>
       </td>
 
       {/* Org */}
       <td className="px-4 py-3 hidden md:table-cell">
-        <span className="text-xs text-text-secondary truncate max-w-[140px] block">
+        <span className="text-xs text-text-muted truncate max-w-[140px] block">
           {token.organization}
         </span>
       </td>
 
-      {/* Status */}
+      {/* Status — superseded tokens get their own badge instead of Active */}
       <td className="px-4 py-3">
-        <StatusBadge status={token.status} />
+        {isSuperseded ? (
+          <span className="badge border gap-1.5 bg-bg-elevated text-text-muted border-border">
+            <RotateCcw className="w-3 h-3" />
+            Superseded
+          </span>
+        ) : (
+          <StatusBadge status={token.status} />
+        )}
       </td>
 
       {/* Expiry / lifecycle event */}
       <td className="px-4 py-3 hidden sm:table-cell">
-        <ExpiryCell token={token} />
+        {isSuperseded ? (
+          <span className="text-xs text-text-muted">Re-enrolled</span>
+        ) : (
+          <ExpiryCell token={token} />
+        )}
       </td>
 
       {/* Device ID */}
       <td className="px-4 py-3 hidden lg:table-cell">
         {token.device_id ? (
-          <span className="font-mono text-xs text-text-secondary truncate max-w-[120px] block">
+          <span className={cn("font-mono text-xs truncate max-w-[120px] block", isSuperseded ? "text-text-muted" : "text-text-secondary")}>
             {token.device_id}
           </span>
         ) : (
