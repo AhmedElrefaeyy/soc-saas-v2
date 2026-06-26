@@ -99,27 +99,52 @@ class IngestionService:
         raw_token = secrets.token_urlsafe(_ENROLLMENT_TOKEN_BYTES)
         token_hash = hash_agent_token(raw_token)
 
-        agent = Agent(
-            tenant_id=tenant_id,
-            name=payload.name,
-            hostname=payload.hostname,
-            os_type=AgentOsType(payload.os_type),
-            status=AgentStatus.OFFLINE,
-            agent_version=payload.agent_version,
-            ip_address=payload.ip_address,
-            enrollment_token_hash=token_hash,
-            config={},
-            tags=payload.tags,
+        # Re-enrollment: if a non-deleted agent with the same hostname already
+        # exists for this tenant, rotate its token and update metadata instead
+        # of creating a duplicate record.
+        existing = await db.execute(
+            select(Agent).where(
+                Agent.tenant_id == tenant_id,
+                Agent.hostname == payload.hostname,
+                Agent.deleted_at.is_(None),
+            ).limit(1)
         )
-        db.add(agent)
-        await db.flush()
+        agent = existing.scalar_one_or_none()
 
-        logger.info(
-            "agent_enrolled",
-            agent_id=str(agent.id),
-            tenant_id=str(tenant_id),
-            hostname=payload.hostname,
-        )
+        if agent is not None:
+            agent.enrollment_token_hash = token_hash
+            agent.agent_version = payload.agent_version
+            agent.ip_address = payload.ip_address
+            agent.os_type = AgentOsType(payload.os_type)
+            agent.status = AgentStatus.OFFLINE
+            await db.flush()
+            logger.info(
+                "agent_re_enrolled",
+                agent_id=str(agent.id),
+                tenant_id=str(tenant_id),
+                hostname=payload.hostname,
+            )
+        else:
+            agent = Agent(
+                tenant_id=tenant_id,
+                name=payload.name,
+                hostname=payload.hostname,
+                os_type=AgentOsType(payload.os_type),
+                status=AgentStatus.OFFLINE,
+                agent_version=payload.agent_version,
+                ip_address=payload.ip_address,
+                enrollment_token_hash=token_hash,
+                config={},
+                tags=payload.tags,
+            )
+            db.add(agent)
+            await db.flush()
+            logger.info(
+                "agent_enrolled",
+                agent_id=str(agent.id),
+                tenant_id=str(tenant_id),
+                hostname=payload.hostname,
+            )
 
         return AgentEnrollResponse(
             agent_id=agent.id,
