@@ -121,11 +121,11 @@ export function MitreHeatmap({ timeRange }: MitreHeatmapProps) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-x-auto p-4 min-h-0">
+      <div className="flex-1 overflow-hidden p-4 min-h-0">
         {isLoading ? (
-          <div className="flex gap-2 h-full">
+          <div className="flex gap-1 h-full">
             {MITRE_TACTICS.map((tactic) => (
-              <div key={tactic.id} className="flex flex-col gap-1" style={{ minWidth: 72 }}>
+              <div key={tactic.id} className="flex flex-col gap-1 flex-1 min-w-0">
                 <div className="h-5 rounded bg-bg-subtle animate-pulse" />
                 {tactic.techniques.map((t) => (
                   <div key={t.id} className="h-7 rounded bg-bg-subtle animate-pulse opacity-50" />
@@ -141,9 +141,9 @@ export function MitreHeatmap({ timeRange }: MitreHeatmapProps) {
             className="h-full"
           />
         ) : (
-          <div className="flex gap-1.5 min-w-max">
+          <div className="flex gap-1 w-full">
             {MITRE_TACTICS.map((tactic) => (
-              <div key={tactic.id} className="flex flex-col gap-1" style={{ minWidth: 72 }}>
+              <div key={tactic.id} className="flex flex-col gap-1 flex-1 min-w-0">
                 {/* Tactic column header */}
                 <div
                   className="h-6 flex items-center justify-center rounded bg-accent/10 border border-accent/20 px-1"
