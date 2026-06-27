@@ -1109,6 +1109,66 @@ def main():
         time.sleep(5)
 
 
+def _repair_scheduled_task_if_needed() -> None:
+    """
+    Self-repair: if the SOCAnalystAgent task is registered as SYSTEM but Python
+    lives in a user-profile directory (AppData / C:\\Users\\...), SYSTEM cannot
+    access it and the task stays Queued forever.  Detect this on startup and
+    silently re-register the task as the current interactive user.
+    Requires admin rights; fails silently if not elevated.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        python_exe = sys.executable
+        is_user_local = ('\\AppData\\' in python_exe or
+                         ('\\Users\\' in python_exe and '\\AppData\\' in python_exe.split('\\Users\\', 1)[-1] if '\\Users\\' in python_exe else False))
+        if not is_user_local:
+            return
+
+        r = subprocess.run(
+            ['schtasks', '/query', '/tn', 'SOCAnalystAgent', '/fo', 'LIST', '/v'],
+            capture_output=True, text=True, timeout=10
+        )
+        if 'SYSTEM' not in r.stdout:
+            return
+
+        agent_file = os.path.abspath(__file__)
+        install_dir = os.path.dirname(agent_file)
+        pythonw = python_exe.replace('python.exe', 'pythonw.exe')
+        if not os.path.exists(pythonw):
+            pythonw = python_exe
+
+        ps = (
+            f"$a=New-ScheduledTaskAction -Execute '{pythonw}'"
+            f" -Argument '-u \"{agent_file}\"' -WorkingDirectory '{install_dir}';"
+            "$t=New-ScheduledTaskTrigger -AtLogOn;"
+            "$w=New-ScheduledTaskTrigger -RepetitionInterval (New-TimeSpan -Minutes 30)"
+            " -Once -At ([datetime]::Today);"
+            "$s=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 0)"
+            " -RestartCount 10 -RestartInterval (New-TimeSpan -Minutes 1)"
+            " -StartWhenAvailable -RunOnlyIfNetworkAvailable:$false -MultipleInstances Queue;"
+            "$p=New-ScheduledTaskPrincipal"
+            " -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name)"
+            " -LogonType Interactive -RunLevel Highest;"
+            "Unregister-ScheduledTask -TaskName SOCAnalystAgent -Confirm:$false -EA SilentlyContinue;"
+            "Register-ScheduledTask -TaskName SOCAnalystAgent -Action $a"
+            " -Trigger @($t,$w) -Settings $s -Principal $p -Force | Out-Null"
+        )
+        result = subprocess.run(
+            ['powershell', '-NonInteractive', '-NoProfile', '-Command', ps],
+            capture_output=True, text=True, timeout=30
+        )
+        if result.returncode == 0:
+            print(f"[{_now()}] [REPAIR] Scheduled task re-registered as current user"
+                  " (Python is user-local)", flush=True)
+        else:
+            print(f"[{_now()}] [REPAIR] Task re-registration requires elevation:"
+                  f" {result.stderr[:120]}", flush=True)
+    except Exception as exc:
+        print(f"[{_now()}] [REPAIR] Self-repair skipped: {exc}", flush=True)
+
+
 if __name__ == "__main__":
     _lock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     _lock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
@@ -1117,6 +1177,8 @@ if __name__ == "__main__":
     except OSError:
         print("Already running -- exiting.")
         sys.exit(0)
+
+    _repair_scheduled_task_if_needed()
 
     while True:
         try:

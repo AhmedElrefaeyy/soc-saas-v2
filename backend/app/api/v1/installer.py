@@ -35,6 +35,26 @@ _SCRIPTS_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "scripts")
 )
 _BOOTSTRAP_SCRIPT = os.path.join(_SCRIPTS_DIR, "bootstrap.ps1")
+_REPAIR_SCRIPT    = os.path.join(_SCRIPTS_DIR, "repair.ps1")
+
+
+@router.get("/repair.ps1", include_in_schema=False)
+async def download_repair_script() -> PlainTextResponse:
+    """Serves the repair script for already-enrolled machines with a broken scheduled task.
+    Public endpoint — no auth required (script contains no secrets).
+    Usage on affected machine (as Administrator):
+        irm <api-url>/api/v1/installer/repair.ps1 | iex
+    """
+    try:
+        with open(_REPAIR_SCRIPT, "r", encoding="utf-8") as f:
+            content = f.read()
+        return PlainTextResponse(
+            content=content,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": 'attachment; filename="repair.ps1"'},
+        )
+    except FileNotFoundError:
+        return PlainTextResponse("# repair.ps1 not found", status_code=404)
 
 
 @router.get("/bootstrap.ps1", include_in_schema=False)
