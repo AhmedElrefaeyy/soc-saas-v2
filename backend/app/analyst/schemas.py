@@ -421,6 +421,8 @@ class InvestigationListItem(BaseModel):
     created_at:             datetime
     updated_at:             datetime
     ai_analysis_json:       dict | None = None
+    resolved_at:            datetime | None = None
+    closed_at:              datetime | None = None
 
 
 class InvestigationCreate(BaseModel):

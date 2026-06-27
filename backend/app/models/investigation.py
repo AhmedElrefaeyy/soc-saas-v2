@@ -100,6 +100,19 @@ class Investigation(Base, TimestampMixin):
         JSONB, nullable=False, default=list
     )
 
+    # ── Computed lifecycle timestamps (derived from updated_at + status) ──────
+    @property
+    def resolved_at(self) -> datetime | None:
+        if self.status in ("resolved", "closed", "false_positive"):
+            return self.updated_at
+        return None
+
+    @property
+    def closed_at(self) -> datetime | None:
+        if self.status in ("closed", "false_positive"):
+            return self.updated_at
+        return None
+
     __table_args__ = (
         Index("idx_investigation_tenant_score",   "tenant_id", "threat_score"),
         Index("idx_investigation_tenant_created",  "tenant_id", "created_at"),

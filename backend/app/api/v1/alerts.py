@@ -19,6 +19,32 @@ from app.services.audit_service import AuditService
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
 
+# ─── Summary (status counts) ──────────────────────────────────────────────────
+
+@router.get("/summary", response_model=APIResponse[dict])
+async def get_alerts_summary(
+    member: Annotated[object, require_permission(Permission.ALERTS_READ)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> APIResponse[dict]:
+    from app.models.alert import Alert
+    from app.models.tenant_member import TenantMember
+    from sqlalchemy import func, select
+
+    m: TenantMember = member  # type: ignore[assignment]
+    result = await db.execute(
+        select(Alert.status, func.count(Alert.id))
+        .where(Alert.tenant_id == m.tenant_id, Alert.deleted_at.is_(None))
+        .group_by(Alert.status)
+    )
+    counts = {str(row[0].value if hasattr(row[0], "value") else row[0]): int(row[1]) for row in result}
+    return APIResponse.ok({
+        "open":           counts.get("open", 0),
+        "acknowledged":   counts.get("acknowledged", 0),
+        "closed":         counts.get("closed", 0),
+        "false_positive": counts.get("false_positive", 0),
+    })
+
+
 class BulkAlertUpdateRequest(BaseModel):
     alert_ids: list[UUID] = Field(min_length=1, max_length=100)
     status: Literal["open", "acknowledged", "closed", "false_positive"] | None = None
@@ -153,6 +179,138 @@ async def bulk_update_alerts(
     await db.commit()
 
     return APIResponse.ok({"updated": len(updated_ids)})
+
+
+# ─── Alert timeline (synthesized from alert state transitions) ───────────────
+
+@router.get("/{alert_id}/timeline", response_model=APIResponse[list])
+async def get_alert_timeline(
+    alert_id: UUID,
+    member: Annotated[object, require_permission(Permission.ALERTS_READ)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> APIResponse[list]:
+    from app.models.tenant_member import TenantMember
+
+    m: TenantMember = member  # type: ignore[assignment]
+    alert = await AlertService.require_by_id(db, m.tenant_id, alert_id)
+
+    events = []
+
+    # Alert created
+    events.append({
+        "id": f"{alert.id}-created",
+        "alertId": str(alert.id),
+        "eventType": "alert_created",
+        "actorName": "Detection Engine",
+        "details": {
+            "severity": alert.severity.value if hasattr(alert.severity, "value") else alert.severity,
+            "rule": alert.rule_name or alert.title,
+        },
+        "createdAt": alert.created_at.isoformat(),
+    })
+
+    if alert.acknowledged_at:
+        events.append({
+            "id": f"{alert.id}-acknowledged",
+            "alertId": str(alert.id),
+            "eventType": "status_changed",
+            "actorName": None,
+            "details": {"from": "open", "to": "acknowledged"},
+            "createdAt": alert.acknowledged_at.isoformat(),
+        })
+
+    if alert.closed_at:
+        events.append({
+            "id": f"{alert.id}-closed",
+            "alertId": str(alert.id),
+            "eventType": "status_changed",
+            "actorName": None,
+            "details": {"from": "acknowledged", "to": alert.status.value if hasattr(alert.status, "value") else str(alert.status)},
+            "createdAt": alert.closed_at.isoformat(),
+        })
+
+    if alert.notes:
+        events.append({
+            "id": f"{alert.id}-note",
+            "alertId": str(alert.id),
+            "eventType": "note_added",
+            "actorName": "Analyst",
+            "details": {"note": alert.notes},
+            "createdAt": alert.updated_at.isoformat(),
+        })
+
+    return APIResponse.ok(events)
+
+
+# ─── Alert investigation context (related alerts on same host) ────────────────
+
+@router.get("/{alert_id}/context", response_model=APIResponse[dict])
+async def get_alert_context(
+    alert_id: UUID,
+    member: Annotated[object, require_permission(Permission.ALERTS_READ)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> APIResponse[dict]:
+    from app.models.alert import Alert
+    from app.models.tenant_member import TenantMember
+    from datetime import timedelta, timezone
+    from sqlalchemy import select
+
+    m: TenantMember = member  # type: ignore[assignment]
+    alert = await AlertService.require_by_id(db, m.tenant_id, alert_id)
+
+    related: list[Alert] = []
+    if alert.source_host:
+        cutoff = alert.created_at - timedelta(hours=24) if alert.created_at else None
+        q = (
+            select(Alert)
+            .where(
+                Alert.tenant_id == m.tenant_id,
+                Alert.source_host == alert.source_host,
+                Alert.id != alert_id,
+                Alert.deleted_at.is_(None),
+            )
+            .order_by(Alert.created_at.desc())
+            .limit(10)
+        )
+        if cutoff:
+            from sqlalchemy import and_
+            q = q.where(Alert.created_at >= cutoff)
+        result = await db.execute(q)
+        related = list(result.scalars().all())
+
+    # Check for linked investigation
+    investigation = None
+    try:
+        from app.models.investigation import Investigation
+        from sqlalchemy import text
+        res = await db.execute(
+            select(Investigation)
+            .where(
+                Investigation.tenant_id == m.tenant_id,
+                Investigation.deleted_at.is_(None),
+            )
+            .filter(
+                Investigation.alert_ids.contains([str(alert_id)])  # type: ignore
+            )
+            .limit(1)
+        )
+        inv = res.scalar_one_or_none()
+        if inv:
+            investigation = {
+                "id": str(inv.id),
+                "title": inv.title,
+                "status": inv.status.value if hasattr(inv.status, "value") else str(inv.status),
+                "createdAt": inv.created_at.isoformat() if inv.created_at else None,
+                "alertCount": len(inv.alert_ids) if inv.alert_ids else 1,
+            }
+    except Exception:
+        pass  # Investigation model may not have alert_ids array
+
+    return APIResponse.ok({
+        "alertId": str(alert_id),
+        "relatedAlerts": [AlertResponse.model_validate(a).model_dump(mode="json") for a in related],
+        "investigation": investigation,
+    })
 
 
 # ─── Promote alert to investigation ──────────────────────────────────────────

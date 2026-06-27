@@ -9,6 +9,7 @@ import { playbooksApi } from "@/api/playbooks";
 import { toastError, toastSuccess } from "@/lib/toast";
 import { extractApiError } from "@/lib/utils";
 import { useInvDetail, useInvUpdateStatus, useInvSetVerdict } from "./hooks/useInvestigationDetail";
+import { getRelatedAlerts } from "./api/investigationsApi";
 import { InvLeftSidebar } from "./components/InvLeftSidebar";
 import { StatusPipeline } from "./components/StatusPipeline";
 import { InvVerdictDropdown } from "./components/InvVerdictDropdown";
@@ -119,6 +120,14 @@ export function InvestigationDetailPage() {
     staleTime: 30_000,
   });
   const linkedPlaybook = invPlaybooks?.[0] ?? null;
+
+  const { data: relatedAlerts = [] } = useQuery({
+    queryKey: ["inv-related-alerts-hosts", id],
+    queryFn:  () => getRelatedAlerts(id!),
+    enabled:  !!id && !!inv,
+    staleTime: 60_000,
+  });
+  const hostnames = [...new Set(relatedAlerts.map((a) => a.hostname).filter(Boolean))] as string[];
 
   const sla = useSLAElapsed(
     inv?.created_at ?? new Date().toISOString(),
@@ -273,7 +282,7 @@ export function InvestigationDetailPage() {
           <IOCEnrichmentPanel investigationId={inv.investigation_id} />
           <ContainmentActionsPanel
             investigationId={inv.investigation_id}
-            hostnames={[]}
+            hostnames={hostnames}
           />
         </div>
 

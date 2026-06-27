@@ -97,6 +97,55 @@ class Alert(Base, TimestampMixin, SoftDeleteMixin):
             return None
         return self.ai_metadata.get("ai_analysis")
 
+    # ── Evidence-derived convenience properties ───────────────────────────────
+
+    @property
+    def rule_name(self) -> str | None:
+        ev = self.evidence or {}
+        name = ev.get("rule_name")
+        if name:
+            return name
+        # Fall back: extract rule name from title ("Rule Name — on Host by proc (user)")
+        title = self.title or ""
+        em_dash_pos = title.find(" — ")
+        return title[:em_dash_pos] if em_dash_pos > 0 else title
+
+    @property
+    def username(self) -> str | None:
+        ev = self.evidence or {}
+        user = ev.get("user") or {}
+        return user.get("name") or user.get("username") or None
+
+    @property
+    def source_ip(self) -> str | None:
+        ev = self.evidence or {}
+        network = ev.get("network") or {}
+        return network.get("src_ip") or None
+
+    @property
+    def raw_event_count(self) -> int:
+        ev = self.evidence or {}
+        return int(ev.get("threshold_count") or 1)
+
+    @property
+    def first_seen_at(self) -> datetime | None:
+        ev = self.evidence or {}
+        ts = ev.get("event_timestamp")
+        if ts:
+            try:
+                return datetime.fromisoformat(ts)
+            except (ValueError, TypeError):
+                pass
+        return self.created_at
+
+    @property
+    def last_seen_at(self) -> datetime | None:
+        return self.updated_at or self.created_at
+
+    @property
+    def assignee_name(self) -> str | None:
+        return None  # populated via join in endpoints that need it
+
     __table_args__ = (
         Index("idx_alert_tenant_status", "tenant_id", "status"),
         Index("idx_alert_tenant_severity", "tenant_id", "severity"),

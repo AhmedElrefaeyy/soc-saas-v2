@@ -118,6 +118,8 @@ class AnalystWorkspaceService:
             recommended_actions=inv.recommended_actions or [],
             created_at=inv.created_at,
             updated_at=inv.updated_at,
+            resolved_at=inv.resolved_at,
+            closed_at=inv.closed_at,
             note_count=note_count,
             evidence_count=evidence_count,
             ai_analysis_json=inv.ai_analysis_json,

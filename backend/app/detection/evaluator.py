@@ -220,6 +220,7 @@ class RuleEvaluator:
             stream_id=stream_id,
             count=count,
             window_event_ids=window_event_ids or None,
+            rule_name=rule.name,
         )
 
         # Attach risk context so analysts can audit why severity was (or wasn't) elevated

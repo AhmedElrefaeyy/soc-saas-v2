@@ -114,7 +114,7 @@ async def create_investigation(
     )
 
     detail = InvestigationDetail(
-        investigation_id=str(investigation.id),
+        investigation_id=investigation.investigation_group_id,
         tenant_id=str(investigation.tenant_id),
         investigation_group_id=investigation.investigation_group_id,
         threat_score=investigation.threat_score,
@@ -238,7 +238,7 @@ async def get_related_alerts(
 
     inv_result = await db.execute(
         select(Investigation).where(
-            Investigation.id == UUID(investigation_id),
+            Investigation.investigation_group_id == investigation_id,
             Investigation.tenant_id == m.tenant_id,
         )
     )
@@ -273,26 +273,32 @@ async def get_related_alerts(
     alerts = list(result.scalars().all())
 
     def _serialize(a: Alert) -> dict:
+        ev = a.evidence or {}
+        process = ev.get("process") or {}
         return {
-            "id":            str(a.id),
-            "tenant_id":     str(a.tenant_id),
-            "rule_id":       str(a.rule_id or ""),
-            "rule_name":     str(a.rule_name or ""),
-            "title":         a.title,
-            "description":   a.description or "",
-            "severity":      a.severity.value if hasattr(a.severity, "value") else str(a.severity),
-            "status":        a.status.value if hasattr(a.status, "value") else str(a.status),
-            "source_host":   a.source_host,
-            "source_ip":     a.source_ip,
-            "username":      a.username,
-            "process_name":  a.process_name,
-            "tags":          a.tags or [],
-            "raw_event_count": getattr(a, "raw_event_count", 0) or 0,
-            "first_seen_at": a.created_at.isoformat() if a.created_at else None,
-            "last_seen_at":  a.updated_at.isoformat() if a.updated_at else None,
-            "created_at":    a.created_at.isoformat() if a.created_at else None,
-            "updated_at":    a.updated_at.isoformat() if a.updated_at else None,
-            "archived":      a.deleted_at is not None,
+            "id":              str(a.id),
+            "tenant_id":       str(a.tenant_id),
+            "rule_id":         str(a.rule_id or ""),
+            "rule_name":       a.rule_name or "",
+            "title":           a.title,
+            "description":     a.description or "",
+            "severity":        a.severity.value if hasattr(a.severity, "value") else str(a.severity),
+            "status":          a.status.value if hasattr(a.status, "value") else str(a.status),
+            "source_host":     a.source_host,
+            "source_ip":       a.source_ip,
+            "username":        a.username,
+            "process_name":    process.get("name"),
+            "mitre_tactics":   a.mitre_tactics or [],
+            "mitre_techniques": a.mitre_techniques or [],
+            "ai_analysis":     a.ai_analysis,
+            "evidence":        ev,
+            "tags":            getattr(a, "tags", []) or [],
+            "raw_event_count": a.raw_event_count,
+            "first_seen_at":   a.first_seen_at.isoformat() if a.first_seen_at else None,
+            "last_seen_at":    a.last_seen_at.isoformat() if a.last_seen_at else None,
+            "created_at":      a.created_at.isoformat() if a.created_at else None,
+            "updated_at":      a.updated_at.isoformat() if a.updated_at else None,
+            "archived":        a.deleted_at is not None,
         }
 
     return APIResponse.ok({
@@ -883,6 +889,156 @@ async def list_saved_hunts(
         )
         for h in hunts
     ])
+
+
+# ─── Process tree (built from linked alert evidence) ─────────────────────────
+
+@router.get("/{investigation_id}/process-tree", response_model=APIResponse[dict])
+async def get_process_tree(
+    investigation_id: str,
+    member: Annotated[object, require_permission(Permission.INVESTIGATIONS_READ)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> APIResponse[dict]:
+    from app.models.alert import Alert
+    from app.models.investigation import Investigation
+    from app.models.tenant_member import TenantMember
+    from uuid import UUID as _UUID
+    import uuid as _uuid_mod
+
+    m: TenantMember = member  # type: ignore[assignment]
+
+    inv = await db.scalar(
+        select(Investigation).where(
+            Investigation.investigation_group_id == investigation_id,
+            Investigation.tenant_id == m.tenant_id,
+        )
+    )
+    if not inv:
+        return APIResponse.ok({"roots": []})
+
+    alert_ids: list[str] = inv.triggering_alert_ids or []
+    if not alert_ids:
+        return APIResponse.ok({"roots": []})
+
+    parsed_ids: list[_UUID] = []
+    for aid in alert_ids:
+        try:
+            parsed_ids.append(_uuid_mod.UUID(str(aid)))
+        except (ValueError, AttributeError):
+            pass
+
+    if not parsed_ids:
+        return APIResponse.ok({"roots": []})
+
+    result = await db.execute(
+        select(Alert).where(Alert.id.in_(parsed_ids), Alert.tenant_id == m.tenant_id)
+    )
+    alerts = result.scalars().all()
+
+    roots: list[dict] = []
+    for alert in alerts:
+        ev = alert.evidence or {}
+        proc = ev.get("process") or {}
+        if not proc.get("name"):
+            continue
+        node: dict = {
+            "guid": str(alert.id),
+            "pid": 0,
+            "name": proc.get("name", "unknown"),
+            "commandLine": proc.get("command_line") or None,
+            "signer": proc.get("signer") or None,
+            "imageHash": proc.get("hash") or None,
+            "user": (ev.get("user") or {}).get("name") or None,
+            "hostname": ev.get("hostname") or alert.source_host or None,
+            "suspicious": alert.severity.value not in ("informational", "low")
+                          if hasattr(alert.severity, "value") else True,
+            "children": [],
+        }
+        roots.append(node)
+
+    return APIResponse.ok({"roots": roots})
+
+
+# ─── Network flows (built from linked alert evidence) ─────────────────────────
+
+@router.get("/{investigation_id}/network-flows", response_model=APIResponse[dict])
+async def get_network_flows(
+    investigation_id: str,
+    member: Annotated[object, require_permission(Permission.INVESTIGATIONS_READ)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> APIResponse[dict]:
+    from app.models.alert import Alert
+    from app.models.investigation import Investigation
+    from app.models.tenant_member import TenantMember
+    from datetime import timezone
+    import uuid as _uuid_mod
+
+    m: TenantMember = member  # type: ignore[assignment]
+
+    inv = await db.scalar(
+        select(Investigation).where(
+            Investigation.investigation_group_id == investigation_id,
+            Investigation.tenant_id == m.tenant_id,
+        )
+    )
+    if not inv:
+        return APIResponse.ok({"flows": [], "start_time": None, "end_time": None})
+
+    alert_ids: list[str] = inv.triggering_alert_ids or []
+    parsed_ids = []
+    for aid in alert_ids:
+        try:
+            parsed_ids.append(_uuid_mod.UUID(str(aid)))
+        except (ValueError, AttributeError):
+            pass
+
+    if not parsed_ids:
+        return APIResponse.ok({"flows": [], "start_time": None, "end_time": None})
+
+    result = await db.execute(
+        select(Alert).where(Alert.id.in_(parsed_ids), Alert.tenant_id == m.tenant_id)
+    )
+    alerts = result.scalars().all()
+
+    flows = []
+    timestamps = []
+    seen = set()
+
+    for alert in alerts:
+        ev = alert.evidence or {}
+        net = ev.get("network") or {}
+        src_ip = net.get("src_ip")
+        dst_ip = net.get("dst_ip")
+        if not src_ip or not dst_ip:
+            continue
+
+        src_host = ev.get("hostname") or alert.source_host or src_ip
+        flow_key = (f"{src_ip}({src_host})", dst_ip)
+        if flow_key in seen:
+            continue
+        seen.add(flow_key)
+
+        sev = alert.severity.value if hasattr(alert.severity, "value") else str(alert.severity)
+        is_exfil   = dst_ip and not (dst_ip.startswith("10.") or dst_ip.startswith("192.168.") or dst_ip.startswith("172."))
+        is_lateral = not is_exfil and src_ip != dst_ip
+
+        flows.append({
+            "source": f"{src_ip} ({src_host})",
+            "target": dst_ip,
+            "bytes": net.get("bytes_sent") or net.get("bytes") or 0,
+            "packets": net.get("packets") or 0,
+            "proto": str(net.get("protocol") or "TCP").upper(),
+            "is_lateral": is_lateral,
+            "is_exfil": is_exfil,
+        })
+
+        if alert.created_at:
+            timestamps.append(alert.created_at)
+
+    start_time = min(timestamps).isoformat() if timestamps else None
+    end_time   = max(timestamps).isoformat() if timestamps else None
+
+    return APIResponse.ok({"flows": flows, "start_time": start_time, "end_time": end_time})
 
 
 # ─── Merge investigations ─────────────────────────────────────────────────────

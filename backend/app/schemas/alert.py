@@ -30,6 +30,15 @@ class AlertResponse(BaseModel):
     updated_at: datetime
     ai_analysis: dict[str, Any] | None = None
 
+    # ── Evidence-derived fields (populated via Alert model properties) ────────
+    rule_name: str | None = None
+    username: str | None = None
+    source_ip: str | None = None
+    raw_event_count: int = 0
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    assignee_name: str | None = None
+
 
 class AlertUpdateRequest(BaseModel):
     status: Literal["open", "acknowledged", "closed", "false_positive"] | None = Field(

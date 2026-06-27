@@ -67,13 +67,53 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
     {
         "name": "LSASS Access - Credential Dump Attempt",
         "description": (
-            "Detects processes interacting with lsass.exe — the Windows Local Security "
-            "Authority process that holds plaintext credentials in memory."
+            "Detects processes targeting lsass.exe for credential dumping — "
+            "specifically procdump, rundll32 comsvcs MiniDump, or direct handle open. "
+            "Requires suspicious dump-specific arguments to avoid false positives from "
+            "diagnostic tools (Task Manager, Process Explorer) that legitimately reference lsass."
         ),
         "rule_type": "pattern",
         "severity": "critical",
         "conditions": [
-            {"field": "process.command_line", "op": "contains", "value": "lsass"},
+            {
+                "op": "any_of",
+                "conditions": [
+                    # procdump targeting lsass
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.name", "op": "eq", "value": "procdump.exe"},
+                                {"field": "process.command_line", "op": "contains", "value": "lsass"},
+                            ],
+                            [
+                                {"field": "process.name", "op": "eq", "value": "procdump64.exe"},
+                                {"field": "process.command_line", "op": "contains", "value": "lsass"},
+                            ],
+                        ],
+                    },
+                    # rundll32 comsvcs MiniDump (fileless LSASS dump)
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.command_line", "op": "contains", "value": "comsvcs"},
+                                {"field": "process.command_line", "op": "contains", "value": "MiniDump"},
+                            ],
+                        ],
+                    },
+                    # Mimikatz-style direct lsass references with dump flags
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.command_line", "op": "regex",
+                                 "value": r"lsass.*-ma\b|lsass.*-dump|\blsass\.exe.*\s+-"},
+                            ],
+                        ],
+                    },
+                ],
+            },
         ],
         "mitre_tactics": ["Credential Access"],
         "mitre_techniques": ["T1003.001"],
@@ -377,13 +417,26 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
     {
         "name": "Windows Script Host (wscript / cscript) Execution",
         "description": (
-            "wscript.exe or cscript.exe launched.  These interpreters run VBScript "
-            "and JScript and are a common phishing / macro payload delivery mechanism."
+            "wscript.exe or cscript.exe running a script from a user-writable or "
+            "suspicious location (Temp, AppData, Downloads, Desktop, Public). "
+            "Scripts from System32 or Program Files are excluded to avoid false "
+            "positives from legitimate Windows administration and printer drivers."
         ),
         "rule_type": "pattern",
         "severity": "medium",
         "conditions": [
             {"field": "process.name", "op": "in", "value": ["wscript.exe", "cscript.exe"]},
+            {
+                "op": "any_of",
+                "conditions": [
+                    {"field": "process.command_line", "op": "regex",
+                     "value": r"\\Temp\\|\\AppData\\Local\\Temp\\|\\Downloads\\|\\Desktop\\|\\Users\\Public\\"},
+                    {"field": "process.command_line", "op": "regex",
+                     "value": r"https?://|\\\\[0-9]{1,3}\.[0-9]{1,3}\."},
+                    {"field": "process.command_line", "op": "regex",
+                     "value": r"\.vbs\s+-e\s+|-e\s+[A-Za-z0-9+/]{20,}"},
+                ],
+            },
         ],
         "mitre_tactics": ["Execution"],
         "mitre_techniques": ["T1059.005"],
@@ -408,18 +461,21 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
     {
         "name": "System Enumeration - whoami / systeminfo",
         "description": (
-            "whoami or systeminfo executed.  Attackers run these immediately after "
-            "gaining access to understand their privilege level and environment."
+            "whoami or systeminfo executed — attackers run these immediately after "
+            "gaining access to understand their privilege level and environment. "
+            "Low severity / long suppression because admins and monitoring scripts "
+            "legitimately run these tools; elevate manually if seen alongside other "
+            "discovery or lateral movement indicators."
         ),
         "rule_type": "pattern",
-        "severity": "medium",
+        "severity": "low",
         "conditions": [
             {"field": "process.name", "op": "in",
              "value": ["whoami.exe", "systeminfo.exe", "hostname.exe"]},
         ],
         "mitre_tactics": ["Discovery"],
         "mitre_techniques": ["T1033", "T1082"],
-        "suppression_window_secs": 600,
+        "suppression_window_secs": 3600,
     },
     {
         "name": "User / Group Enumeration via net.exe",
@@ -447,16 +503,27 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
         "name": "Scheduled Task Created (Event 4698)",
         "description": (
             "A new scheduled task was registered.  Scheduled tasks are the most "
-            "common Windows persistence mechanism used by attackers."
+            "common Windows persistence mechanism used by attackers. "
+            "The SOCAnalystAgent task created by bootstrap enrollment is excluded "
+            "to avoid a false positive on every new agent installation."
         ),
         "rule_type": "pattern",
-        "severity": "high",
+        "severity": "medium",
         "conditions": [
             {"field": "raw.windows_event_id", "op": "eq", "value": "4698"},
+            {
+                "op": "none_of",
+                "conditions": [
+                    {"field": "raw.message", "op": "contains", "value": "SOCAnalystAgent"},
+                    {"field": "raw.message", "op": "contains", "value": "GoogleUpdate"},
+                    {"field": "raw.message", "op": "contains", "value": "MicrosoftEdgeUpdate"},
+                    {"field": "raw.message", "op": "contains", "value": "OneDrive"},
+                ],
+            },
         ],
         "mitre_tactics": ["Persistence", "Execution"],
         "mitre_techniques": ["T1053.005"],
-        "suppression_window_secs": 600,
+        "suppression_window_secs": 3600,
     },
     {
         "name": "New Service Installed (Event 7045)",
@@ -504,16 +571,28 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
         "suppression_window_secs": 3600,
     },
     {
-        "name": "Linux Cron Job Execution Detected",
+        "name": "Linux Cron Job - Suspicious Command Detected",
         "description": (
-            "A cron job ran on a Linux host.  Review for unexpected commands, "
-            "especially network calls or file downloads from crontabs."
+            "Cron executed a command containing network downloads, pipe-to-shell "
+            "patterns, or references to temporary paths — indicators of malicious "
+            "cron persistence. Normal cron jobs (backups, log rotation) are excluded."
         ),
         "rule_type": "pattern",
-        "severity": "low",
+        "severity": "medium",
         "conditions": [
             {"field": "category", "op": "eq", "value": "process"},
             {"field": "raw.program", "op": "in", "value": ["cron", "crond"]},
+            {
+                "op": "any_of",
+                "conditions": [
+                    {"field": "raw.message", "op": "regex",
+                     "value": r"curl\s+|wget\s+|python\s+-c|bash\s+-i|nc\s+-|/tmp/|/dev/tcp"},
+                    {"field": "raw.message", "op": "regex",
+                     "value": r"\|\s*bash|\|\s*sh|\|\s*python"},
+                    {"field": "raw.message", "op": "regex",
+                     "value": r"base64\s+--decode|base64\s+-d\b|echo.*\|\s*sh"},
+                ],
+            },
         ],
         "mitre_tactics": ["Persistence", "Execution"],
         "mitre_techniques": ["T1053.003"],
@@ -627,16 +706,25 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
         "name": "Explicit Credential Use - Pass-the-Hash Indicator (Event 4648)",
         "description": (
             "Logon with explicit credentials other than the logged-on user (Event 4648). "
-            "Classic indicator of pass-the-hash, pass-the-ticket, or runas abuse."
+            "Classic indicator of pass-the-hash, pass-the-ticket, or runas abuse. "
+            "UAC elevation on the same host (most common benign trigger) is suppressed "
+            "by a 3-event threshold requiring at least 3 occurrences in 10 minutes — "
+            "a single UAC prompt does not fire, but repeated lateral movement does."
         ),
-        "rule_type": "pattern",
+        "rule_type": "threshold",
         "severity": "high",
-        "conditions": [
-            {"field": "raw.windows_event_id", "op": "eq", "value": "4648"},
-        ],
+        "conditions": {
+            "field": "hostname",
+            "group_by": "hostname",
+            "threshold": 3,
+            "window_secs": 600,
+            "filters": [
+                {"field": "raw.windows_event_id", "op": "eq", "value": "4648"},
+            ],
+        },
         "mitre_tactics": ["Lateral Movement", "Credential Access"],
         "mitre_techniques": ["T1550.002"],
-        "suppression_window_secs": 600,
+        "suppression_window_secs": 3600,
     },
     {
         "name": "Network Logon to Administrative Share (Type 3)",
@@ -887,15 +975,32 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
         "suppression_window_secs": 3600,
     },
     {
-        "name": "PowerShell Script Block Logging - Execution Captured (Event 4104)",
+        "name": "PowerShell Script Block - Suspicious Content Captured (Event 4104)",
         "description": (
-            "PowerShell script block logging (Event 4104) captured an execution. "
-            "Investigate command content for encoded blobs, network calls, or credential access."
+            "PowerShell script block logging (Event 4104) captured a script containing "
+            "suspicious indicators: encoded commands, AMSI bypass strings, download cradles, "
+            "or credential access patterns. Bare 4104 events without suspicious content "
+            "are excluded to avoid alerting on every legitimate admin script."
         ),
         "rule_type": "pattern",
         "severity": "medium",
         "conditions": [
             {"field": "raw.windows_event_id", "op": "eq", "value": "4104"},
+            {
+                "op": "any_of",
+                "conditions": [
+                    {"field": "raw.message", "op": "regex",
+                     "value": r"-enc[a-z]*\s+[A-Za-z0-9+/]{20,}|-[Ee]ncodedCommand"},
+                    {"field": "raw.message", "op": "regex",
+                     "value": r"amsiInitFailed|AmsiScanBuffer|amsiContext|DisableScriptBlockLogging"},
+                    {"field": "raw.message", "op": "regex",
+                     "value": r"DownloadString|DownloadFile|Invoke-WebRequest|Start-BitsTransfer"},
+                    {"field": "raw.message", "op": "regex",
+                     "value": r"sekurlsa|lsadump|kerberos::ptt|Invoke-Mimikatz"},
+                    {"field": "raw.message", "op": "regex",
+                     "value": r"TCPClient|Net\.Sockets|NetworkStream|StreamReader.*\d{1,3}\.\d{1,3}"},
+                ],
+            },
         ],
         "mitre_tactics": ["Execution"],
         "mitre_techniques": ["T1059.001"],
@@ -1628,7 +1733,9 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
         "name": "Privilege Escalation - SeTcbPrivilege or SeDebugPrivilege Granted",
         "description": (
             "High-privilege token rights (SeTcbPrivilege or SeDebugPrivilege) assigned at logon — "
-            "these allow process injection and SYSTEM-level impersonation."
+            "these allow process injection and SYSTEM-level impersonation. "
+            "Windows built-in system accounts (SYSTEM, DWM, UMFD, Window Manager) that always "
+            "receive these privileges at startup are excluded to prevent constant noise."
         ),
         "rule_type": "pattern",
         "severity": "high",
@@ -1641,10 +1748,21 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
                     {"field": "raw.message", "op": "contains", "value": "SeDebugPrivilege"},
                 ],
             },
+            {
+                "op": "none_of",
+                "conditions": [
+                    {"field": "raw.message", "op": "regex", "value": r"Account Name:\s+SYSTEM\b"},
+                    {"field": "raw.message", "op": "regex", "value": r"Account Name:\s+DWM-\d+"},
+                    {"field": "raw.message", "op": "regex", "value": r"Account Name:\s+UMFD-\d+"},
+                    {"field": "raw.message", "op": "regex", "value": r"Account Name:\s+LOCAL SERVICE"},
+                    {"field": "raw.message", "op": "regex", "value": r"Account Name:\s+NETWORK SERVICE"},
+                    {"field": "raw.message", "op": "regex", "value": r"Account Name:\s+Window Manager"},
+                ],
+            },
         ],
         "mitre_tactics": ["Privilege Escalation"],
         "mitre_techniques": ["T1134"],
-        "suppression_window_secs": 600,
+        "suppression_window_secs": 3600,
     },
 
     # ═══════════════════════════════════════════════════════════════════════

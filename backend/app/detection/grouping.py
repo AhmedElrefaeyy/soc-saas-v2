@@ -25,6 +25,7 @@ def build_alert_evidence(
     stream_id: str | None = None,
     count: int | None = None,
     window_event_ids: list[str] | None = None,
+    rule_name: str | None = None,
 ) -> dict[str, Any]:
     """
     Bundles the triggering event details into the alert evidence JSONB.
@@ -42,6 +43,7 @@ def build_alert_evidence(
         "severity": event.severity,
         "hostname": event.hostname,
         "stream_id": stream_id,
+        "rule_name": rule_name,
     }
 
     if event.process:

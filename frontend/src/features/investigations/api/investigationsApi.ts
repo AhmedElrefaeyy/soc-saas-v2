@@ -155,10 +155,13 @@ function _adaptRelatedAlert(raw: Record<string, any>): Alert & { archived?: bool
 
 export async function getRelatedAlerts(id: string): Promise<(Alert & { archived?: boolean })[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await apiClient.get<APIResponse<any[]>>(
+  const { data } = await apiClient.get<APIResponse<any>>(
     `/investigations/${id}/related-alerts`
   );
-  return (data.data ?? []).map(_adaptRelatedAlert)
+  // Backend wraps alerts in { alerts: [...], total: N, ... }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const items: any[] = Array.isArray(data.data) ? data.data : (data.data?.alerts ?? []);
+  return items.map(_adaptRelatedAlert);
 }
 
 // ─── Activity ─────────────────────────────────────────────────────────────────
