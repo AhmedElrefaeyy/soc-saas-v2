@@ -706,9 +706,9 @@ function AnalystSection({ alert }: { alert: Alert }) {
   const qc = useQueryClient();
   const tenantId = useTenantStore((s) => s.activeTenant?.id) ?? "";
 
-  // Optimistic updates for status mutation
+  // Optimistic updates for status / assignment mutations
   const mutation = useMutation({
-    mutationFn: (payload: { status?: string; notes?: string; assigneeId?: string }) =>
+    mutationFn: (payload: { status?: string; notes?: string; assigneeId?: string; assigneeName?: string }) =>
       updateAlert(alert.id, payload),
     onMutate: async (payload) => {
       await qc.cancelQueries({ queryKey: alertsKeys.detail(tenantId, alert.id) });
@@ -717,6 +717,10 @@ function AnalystSection({ alert }: { alert: Alert }) {
         qc.setQueryData(alertsKeys.detail(tenantId, alert.id), {
           ...prev,
           ...(payload.status && { status: payload.status as AlertStatus }),
+          ...(payload.assigneeId !== undefined && {
+            assignedTo:   payload.assigneeId || undefined,
+            assignedToName: payload.assigneeName || undefined,
+          }),
         });
       }
       return { prev };
@@ -730,8 +734,9 @@ function AnalystSection({ alert }: { alert: Alert }) {
     },
   });
 
-  const changeStatus    = (status: string) => mutation.mutate({ status });
-  const handleAssign    = (userId: string | null) => mutation.mutate({ assigneeId: userId ?? "" });
+  const changeStatus = (status: string) => mutation.mutate({ status });
+  const handleAssign = (userId: string | null, name: string | null) =>
+    mutation.mutate({ assigneeId: userId ?? "", assigneeName: name ?? undefined });
   const handleNote      = (text: string) => mutation.mutate({ notes: text });
 
   const isLoading = mutation.isPending;
@@ -801,7 +806,7 @@ function AnalystSection({ alert }: { alert: Alert }) {
         <AssignmentSelect
           currentId={alert.assignedTo}
           currentName={alert.assignedToName}
-          onAssign={(userId) => handleAssign(userId)}
+          onAssign={(userId, name) => handleAssign(userId, name)}
           disabled={isLoading}
         />
       </div>

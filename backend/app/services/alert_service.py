@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import asyncio
 import base64
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import NotFoundError, ValidationError
@@ -18,6 +17,21 @@ logger = structlog.get_logger(__name__)
 
 # TTL for per-tenant per-flag FP counters (30-day rolling window)
 _FP_COUNTER_TTL = 86400 * 30
+
+
+async def _enrich_assignee_names(db: AsyncSession, alerts: list[Alert]) -> None:
+    """Populate ._assignee_name on each alert via a single User lookup."""
+    ids = {a.assignee_id for a in alerts if a.assignee_id}
+    if not ids:
+        return
+    from app.models.user import User
+    result = await db.execute(
+        select(User.id, User.full_name, User.email).where(User.id.in_(ids))
+    )
+    name_map = {row.id: row.full_name or row.email for row in result.all()}
+    for alert in alerts:
+        if alert.assignee_id and alert.assignee_id in name_map:
+            alert._assignee_name = name_map[alert.assignee_id]  # type: ignore[attr-defined]
 
 
 async def _invalidate_dashboard_cache_async(tenant_id: str) -> None:
@@ -32,7 +46,7 @@ async def _invalidate_dashboard_cache_async(tenant_id: str) -> None:
 async def _record_fp_signal_async(tenant_id: str, evidence: dict) -> None:
     """Increment Redis FP counters for each UEBA flag present in a false-positive alert."""
     try:
-        from app.core.redis import redis_manager, TenantRedisClient
+        from app.core.redis import TenantRedisClient, redis_manager
         redis = redis_manager.get_client()
         client = TenantRedisClient(redis, tenant_id, "ueba")
         ueba_flags: list[str] = evidence.get("ueba_flags", [])
@@ -72,6 +86,7 @@ class AlertService:
         alert = await AlertService.get_by_id(db, tenant_id, alert_id)
         if alert is None:
             raise NotFoundError(f"Alert {alert_id} not found")
+        await _enrich_assignee_names(db, [alert])
         return alert
 
     @staticmethod
@@ -147,6 +162,7 @@ class AlertService:
             next_cursor = _decode_cursor_encode(last.created_at.isoformat(), str(last.id))
             alerts = alerts[:limit]
 
+        await _enrich_assignee_names(db, alerts)
         return alerts, next_cursor
 
     @staticmethod
@@ -158,7 +174,7 @@ class AlertService:
         actor_id: UUID,
     ) -> Alert:
         alert = await AlertService.require_by_id(db, tenant_id, alert_id)
-        now = datetime.now(tz=timezone.utc)
+        now = datetime.now(tz=UTC)
 
         if payload.status is not None:
             try:
@@ -192,6 +208,7 @@ class AlertService:
         if payload.assignee_id is not None:
             # Ensure the assignee is a member of the same tenant.
             from sqlalchemy import exists as _exists
+
             from app.models.tenant_member import TenantMember
             is_member = await db.scalar(
                 select(_exists().where(
@@ -205,6 +222,7 @@ class AlertService:
             alert.assignee_id = payload.assignee_id
 
         await db.flush()
+        await _enrich_assignee_names(db, [alert])
         create_task_safe(
             _invalidate_dashboard_cache_async(str(tenant_id)),
             name="invalidate_dashboard_cache",

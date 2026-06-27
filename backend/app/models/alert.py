@@ -6,9 +6,9 @@ from uuid import uuid4
 
 from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, TimestampMixin, SoftDeleteMixin
+from app.models.base import Base, SoftDeleteMixin, TimestampMixin
 
 
 class AlertStatus(str, enum.Enum):
@@ -144,7 +144,7 @@ class Alert(Base, TimestampMixin, SoftDeleteMixin):
 
     @property
     def assignee_name(self) -> str | None:
-        return None  # populated via join in endpoints that need it
+        return getattr(self, "_assignee_name", None)
 
     __table_args__ = (
         Index("idx_alert_tenant_status", "tenant_id", "status"),
