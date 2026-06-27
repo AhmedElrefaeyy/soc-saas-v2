@@ -44,11 +44,11 @@ export const ticketingApi = {
       .then((r) => (Array.isArray(r.data?.data) ? r.data.data : Array.isArray(r.data) ? (r.data as unknown as Ticket[]) : [])),
 
   getConfig: (provider: TicketProvider) =>
-    apiClient.get<TicketingConfig>(`/integrations/config/${provider}`).then((r) => r.data),
+    apiClient.get<{ data: TicketingConfig }>(`/integrations/config/${provider}`).then((r) => r.data.data),
 
   saveConfig: (config: TicketingConfig) =>
-    apiClient.put<TicketingConfig>(`/integrations/config/${config.provider}`, config).then((r) => r.data),
+    apiClient.put<{ data: TicketingConfig }>(`/integrations/config/${config.provider}`, config).then((r) => r.data.data),
 
   getAllConfigs: () =>
-    apiClient.get<TicketingConfig[]>("/integrations/config").then((r) => r.data),
+    apiClient.get<{ data: TicketingConfig[] }>("/integrations/config").then((r) => r.data.data ?? []),
 };

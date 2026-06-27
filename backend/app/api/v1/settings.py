@@ -16,6 +16,39 @@ from app.schemas.common import APIResponse
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
 
+class SeverityThresholds(BaseModel):
+    critical_min_score: int = 80
+    high_min_score: int = 60
+    medium_min_score: int = 30
+    low_min_score: int = 0
+    escalate_after_minutes: int = 60
+    auto_close_after_days: int = 30
+
+
+@router.get(
+    "/severity-thresholds",
+    response_model=APIResponse[SeverityThresholds],
+    summary="Get tenant severity threshold configuration",
+)
+async def get_severity_thresholds(
+    member: Annotated[object, require_permission(Permission.TENANT_SETTINGS)],
+) -> APIResponse[SeverityThresholds]:
+    return APIResponse.ok(SeverityThresholds())
+
+
+@router.put(
+    "/severity-thresholds",
+    response_model=APIResponse[SeverityThresholds],
+    summary="Update tenant severity threshold configuration",
+)
+async def put_severity_thresholds(
+    payload: SeverityThresholds,
+    member: Annotated[object, require_permission(Permission.TENANT_SETTINGS)],
+) -> APIResponse[SeverityThresholds]:
+    # TODO: persist to tenant settings JSON column when migration is available
+    return APIResponse.ok(payload)
+
+
 class QuotaResponse(BaseModel):
     plan: str
     ingestion_rate_eps: float

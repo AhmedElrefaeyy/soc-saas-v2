@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save } from "lucide-react";
 import { apiClient } from "@/api/client";
@@ -56,16 +56,24 @@ export function SeverityThresholdsSection() {
   const [local, setLocal] = useState<SeverityThresholds>(DEFAULT);
   const [dirty, setDirty] = useState(false);
 
-  useQuery({
+  const { data: fetched } = useQuery({
     queryKey: ["severity-thresholds"],
-    queryFn: () => apiClient.get<SeverityThresholds>("/settings/severity-thresholds").then((r) => r.data),
-    onSuccess: (data: SeverityThresholds) => { setLocal(data); setDirty(false); },
+    queryFn: () =>
+      apiClient.get<{ data: SeverityThresholds }>("/settings/severity-thresholds").then((r) => r.data.data),
     staleTime: 60_000,
-  } as Parameters<typeof useQuery>[0]);
+  });
+
+  useEffect(() => {
+    if (fetched && !dirty) {
+      setLocal(fetched);
+    }
+  }, [fetched, dirty]);
 
   const mutation = useMutation({
     mutationFn: (payload: SeverityThresholds) =>
-      apiClient.put<SeverityThresholds>("/settings/severity-thresholds", payload).then((r) => r.data),
+      apiClient
+        .put<{ data: SeverityThresholds }>("/settings/severity-thresholds", payload)
+        .then((r) => r.data.data),
     onSuccess: (data: SeverityThresholds) => {
       void qc.setQueryData(["severity-thresholds"], data);
       toastSuccess("Thresholds saved");
