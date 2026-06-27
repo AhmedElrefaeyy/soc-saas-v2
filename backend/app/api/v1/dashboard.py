@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1000,3 +1001,153 @@ async def get_geo_threats(
             country_map[country]["severity"] = sev_str
 
     return APIResponse.ok(list(country_map.values()))
+
+
+# ─── /dashboard/alert-heatmap ────────────────────────────────────────────────
+
+@router.get("/alert-heatmap", response_model=APIResponse[list])
+async def get_alert_heatmap(
+    member: Annotated[object, require_permission(Permission.ALERTS_READ)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    timeRange: str = Query(default="last_7d"),
+) -> APIResponse[list]:
+    """Alert volume grouped by day-of-week × hour-of-day for a heatmap view."""
+    from app.models.tenant_member import TenantMember
+    from app.models.alert import Alert
+    m: TenantMember = member  # type: ignore[assignment]
+
+    mapping = {
+        "last_24h": 1, "24h": 1,
+        "last_7d": 7, "7d": 7,
+        "last_6h": 1, "last_15m": 1, "last_1h": 1,
+        "30d": 30,
+    }
+    days = mapping.get(timeRange, 7)
+    since = datetime.now(tz=timezone.utc) - timedelta(days=days)
+
+    result = await db.execute(
+        select(Alert.created_at).where(
+            Alert.tenant_id == m.tenant_id,
+            Alert.created_at >= since,
+        )
+    )
+    timestamps = result.scalars().all()
+
+    counts: dict[tuple[int, int], int] = {}
+    for ts in timestamps:
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        key = (ts.weekday() + 1) % 7, ts.hour  # Mon=0 in Python, convert to Sun=0
+        counts[key] = counts.get(key, 0) + 1
+
+    cells = [{"day": d, "hour": h, "count": counts.get((d, h), 0)} for d in range(7) for h in range(24)]
+    return APIResponse.ok(cells)
+
+
+# ─── /dashboard/mttr-trend ───────────────────────────────────────────────────
+
+@router.get("/mttr-trend", response_model=APIResponse[list])
+async def get_mttr_trend(
+    member: Annotated[object, require_permission(Permission.ALERTS_READ)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> APIResponse[list]:
+    """Weekly MTTR trend for the past 8 weeks."""
+    from app.models.tenant_member import TenantMember
+    from app.models.alert import Alert
+    m: TenantMember = member  # type: ignore[assignment]
+
+    since = datetime.now(tz=timezone.utc) - timedelta(weeks=8)
+    result = await db.execute(
+        select(Alert).where(
+            Alert.tenant_id == m.tenant_id,
+            Alert.created_at >= since,
+        ).order_by(Alert.created_at)
+    )
+    alerts = result.scalars().all()
+
+    # Group by ISO week + severity
+    from collections import defaultdict
+    week_sev: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+    for a in alerts:
+        ts = a.created_at
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        status_str = a.status.value if hasattr(a.status, "value") else str(a.status)
+        if status_str not in ("closed", "false_positive", "resolved"):
+            continue
+        elapsed = max(0.0, (a.updated_at - a.created_at).total_seconds() / 60.0) if a.updated_at else 0
+        iso_week = ts.strftime("%Y-%m-%d")  # Use Monday of the week
+        # Round to Monday
+        monday = ts - timedelta(days=ts.weekday())
+        week_key = monday.strftime("%Y-%m-%d")
+        sev = (a.severity.value if hasattr(a.severity, "value") else str(a.severity)).lower()
+        if sev in ("critical", "high", "medium"):
+            week_sev[week_key][sev].append(elapsed)
+
+    out = []
+    for week in sorted(week_sev.keys()):
+        d = week_sev[week]
+        out.append({
+            "week":             week,
+            "critical_minutes": round(sum(d["critical"]) / len(d["critical"])) if d["critical"] else 0,
+            "high_minutes":     round(sum(d["high"])     / len(d["high"]))     if d["high"]     else 0,
+            "medium_minutes":   round(sum(d["medium"])   / len(d["medium"]))   if d["medium"]   else 0,
+        })
+    return APIResponse.ok(out)
+
+
+# ─── /dashboard/top-entities ─────────────────────────────────────────────────
+
+@router.get("/top-entities", response_model=APIResponse[dict])
+async def get_top_entities(
+    member: Annotated[object, require_permission(Permission.ALERTS_READ)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+    timeRange: str = Query(default="last_24h"),
+) -> APIResponse[dict]:
+    """Top 5 hosts, users, and IPs by alert count."""
+    from app.models.tenant_member import TenantMember
+    from app.models.alert import Alert
+    m: TenantMember = member  # type: ignore[assignment]
+
+    mapping = {
+        "last_15m": timedelta(minutes=15),
+        "last_1h":  timedelta(hours=1),
+        "last_6h":  timedelta(hours=6),
+        "last_24h": timedelta(hours=24),
+        "last_7d":  timedelta(days=7),
+        "24h": timedelta(hours=24),
+        "7d":  timedelta(days=7),
+    }
+    delta = mapping.get(timeRange, timedelta(hours=24))
+    since = datetime.now(tz=timezone.utc) - delta
+
+    result = await db.execute(
+        select(Alert).where(
+            Alert.tenant_id == m.tenant_id,
+            Alert.created_at >= since,
+        )
+    )
+    alerts = result.scalars().all()
+
+    SEV_ORDER = ["low", "medium", "high", "critical"]
+
+    def _aggregate(key_fn):
+        counts: dict[str, dict] = {}
+        for a in alerts:
+            key = key_fn(a)
+            if not key:
+                continue
+            sev = (a.severity.value if hasattr(a.severity, "value") else str(a.severity)).lower()
+            if key not in counts:
+                counts[key] = {"name": key, "count": 0, "severity_max": "low"}
+            counts[key]["count"] += 1
+            existing = counts[key]["severity_max"]
+            if SEV_ORDER.index(sev) > SEV_ORDER.index(existing if existing in SEV_ORDER else "low"):
+                counts[key]["severity_max"] = sev
+        return sorted(counts.values(), key=lambda x: -x["count"])[:5]
+
+    return APIResponse.ok({
+        "hosts": _aggregate(lambda a: a.hostname),
+        "users": _aggregate(lambda a: a.username),
+        "ips":   _aggregate(lambda a: a.source_ip),
+    })

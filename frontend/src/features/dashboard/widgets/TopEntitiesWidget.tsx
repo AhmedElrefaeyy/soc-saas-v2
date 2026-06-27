@@ -29,29 +29,6 @@ const SEV_BG: Record<string, string> = {
   low:      "rgba(107,114,128,0.08)",
 };
 
-const SAMPLE: TopEntitiesData = {
-  hosts: [
-    { name: "DESKTOP-WIN01",  count: 28, severity_max: "critical", delta: +5  },
-    { name: "SERVER-DB01",    count: 19, severity_max: "high",     delta: -2  },
-    { name: "LAPTOP-CFO",     count: 14, severity_max: "high",     delta: +3  },
-    { name: "SERVER-WEB02",   count: 9,  severity_max: "medium",   delta: 0   },
-    { name: "WORKSTATION-05", count: 6,  severity_max: "medium",   delta: -1  },
-  ],
-  users: [
-    { name: "j.smith@corp",   count: 22, severity_max: "critical", delta: +8  },
-    { name: "admin",          count: 17, severity_max: "critical", delta: +1  },
-    { name: "svc_etl",        count: 11, severity_max: "high",     delta: -3  },
-    { name: "r.jones@corp",   count: 7,  severity_max: "medium",   delta: 0   },
-    { name: "backup_svc",     count: 4,  severity_max: "low",      delta: +1  },
-  ],
-  ips: [
-    { name: "192.168.1.101",  count: 31, severity_max: "critical", delta: +12 },
-    { name: "10.0.0.55",      count: 18, severity_max: "high",     delta: -1  },
-    { name: "185.220.101.48", count: 15, severity_max: "critical", delta: +15 },
-    { name: "172.16.8.22",    count: 9,  severity_max: "medium",   delta: +2  },
-    { name: "10.10.5.200",    count: 5,  severity_max: "low",      delta: 0   },
-  ],
-};
 
 type Tab = "hosts" | "users" | "ips";
 
@@ -74,17 +51,20 @@ export function TopEntitiesWidget({ timeRange }: Props) {
   const [tab, setTab] = useState<Tab>("hosts");
   void timeRange;
 
+  const empty: TopEntitiesData = { hosts: [], users: [], ips: [] };
+
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", "top-entities", timeRange],
     queryFn: () =>
-      apiClient.get<TopEntitiesData>(`/dashboard/top-entities?timeRange=${timeRange}`)
-        .then((r) => r.data)
-        .catch(() => SAMPLE),
+      apiClient.get(`/dashboard/top-entities?timeRange=${timeRange}`)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then((r) => ((r.data as any).data ?? r.data) as TopEntitiesData)
+        .catch(() => empty),
     staleTime: 120_000,
-    placeholderData: SAMPLE,
+    placeholderData: empty,
   });
 
-  const display    = data ?? SAMPLE;
+  const display    = data ?? empty;
   const tabCfg     = TABS.find((t) => t.key === tab)!;
   const items      = display[tab];
   const maxCount   = Math.max(1, ...items.map((e) => e.count));

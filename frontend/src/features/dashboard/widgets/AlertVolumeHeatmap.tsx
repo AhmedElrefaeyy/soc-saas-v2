@@ -14,25 +14,6 @@ const HOUR_LABELS = Array.from({ length: 24 }, (_, i) =>
   i === 0 ? "12a" : i < 12 ? `${i}a` : i === 12 ? "12p" : `${i - 12}p`
 );
 
-function sampleHeatmap(): HeatmapCell[] {
-  const cells: HeatmapCell[] = [];
-  for (let d = 0; d < 7; d++) {
-    for (let h = 0; h < 24; h++) {
-      const isBusinessHours = h >= 8 && h <= 18 && d >= 1 && d <= 5;
-      const isSpike = (d === 2 || d === 3) && h >= 10 && h <= 13;
-      cells.push({
-        day: d,
-        hour: h,
-        count: isSpike
-          ? Math.floor(Math.random() * 35 + 20)
-          : isBusinessHours
-            ? Math.floor(Math.random() * 18 + 4)
-            : Math.floor(Math.random() * 4),
-      });
-    }
-  }
-  return cells;
-}
 
 function cellColorClass(count: number, max: number): string {
   if (count === 0) return "bg-bg-elevated";
@@ -54,11 +35,12 @@ export function AlertVolumeHeatmap({ timeRange }: Props) {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", "heatmap", timeRange],
     queryFn: () =>
-      apiClient.get<HeatmapCell[]>(`/dashboard/alert-heatmap?timeRange=${timeRange}`)
-        .then((r) => r.data)
-        .catch(() => sampleHeatmap()),
+      apiClient.get(`/dashboard/alert-heatmap?timeRange=${timeRange}`)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then((r) => ((r.data as any).data ?? r.data) as HeatmapCell[])
+        .catch(() => [] as HeatmapCell[]),
     staleTime: 300_000,
-    placeholderData: sampleHeatmap,
+    placeholderData: [] as HeatmapCell[],
   });
 
   const cells = data ?? [];

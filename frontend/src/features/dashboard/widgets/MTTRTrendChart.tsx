@@ -14,20 +14,6 @@ interface MTTRTrendPoint {
   medium_minutes:   number;
 }
 
-function makeSample(): MTTRTrendPoint[] {
-  const now = Date.now();
-  return Array.from({ length: 8 }, (_, i) => {
-    const d = new Date(now - (7 - i) * 7 * 86_400_000);
-    return {
-      week:             d.toISOString().slice(0, 10),
-      critical_minutes: 55  + Math.sin(i * 0.8) * 20 + Math.random() * 15,
-      high_minutes:     110 + Math.sin(i * 0.6) * 40 + Math.random() * 25,
-      medium_minutes:   280 + Math.sin(i * 0.4) * 80 + Math.random() * 40,
-    };
-  });
-}
-
-const SAMPLE = makeSample();
 
 // SLA targets in minutes
 const TARGETS = { critical: 60, high: 240, medium: 480 };
@@ -72,14 +58,15 @@ export function MTTRTrendChart({ timeRange }: Props) {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard", "mttr-trend"],
     queryFn: () =>
-      apiClient.get<MTTRTrendPoint[]>("/dashboard/mttr-trend")
-        .then((r) => r.data)
-        .catch(() => SAMPLE),
+      apiClient.get("/dashboard/mttr-trend")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .then((r) => ((r.data as any).data ?? r.data) as MTTRTrendPoint[])
+        .catch(() => [] as MTTRTrendPoint[]),
     staleTime: 300_000,
-    placeholderData: SAMPLE,
+    placeholderData: [] as MTTRTrendPoint[],
   });
 
-  const points = data ?? SAMPLE;
+  const points = data ?? [];
   const last = points[points.length - 1];
 
   return (
