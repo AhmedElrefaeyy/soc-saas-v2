@@ -369,6 +369,107 @@ async def _auto_create_investigation(
         logger.warning("auto_investigation_failed", error=str(exc), exc_info=True)
 
 
+async def _volume_investigation(
+    alert: Alert,
+    tenant_id: UUID,
+) -> None:
+    """
+    Volume-based investigation trigger: when 3+ critical/high alerts accumulate on the
+    same host within a 1-hour window, auto-create an investigation even if no attack-chain
+    keyword pattern matched. Uses per-host/hour dedup so only one investigation is created
+    per cluster regardless of how many concurrent workers process it.
+    """
+    if not alert.source_host:
+        return
+    if alert.severity.value not in ("critical", "high"):
+        return
+
+    try:
+        from datetime import timedelta
+
+        from sqlalchemy import func, select as _select
+
+        from app.core.database import database_manager
+        from app.models.investigation import Investigation, InvestigationStatus
+
+        VOLUME_THRESHOLD = 3
+        WINDOW_H = 1
+
+        async with database_manager.session() as db:
+            cutoff = datetime.now(tz=UTC) - timedelta(hours=WINDOW_H)
+
+            count_row = await db.execute(
+                _select(func.count())
+                .select_from(Alert)
+                .where(
+                    Alert.tenant_id == tenant_id,
+                    Alert.source_host == alert.source_host,
+                    Alert.created_at >= cutoff,
+                    Alert.deleted_at.is_(None),
+                    Alert.severity.in_(["critical", "high"]),
+                    Alert.title.not_like("[Attack Chain]%"),
+                )
+            )
+            count = count_row.scalar() or 0
+
+            if count < VOLUME_THRESHOLD:
+                return
+
+            # Dedup key: one investigation per host per hour bucket
+            hour_bucket = cutoff.replace(minute=0, second=0, microsecond=0).strftime("%Y%m%dT%H")
+            group_id = f"cluster:{tenant_id}:{alert.source_host}:{hour_bucket}"
+
+            existing = await db.execute(
+                _select(Investigation.id)
+                .where(
+                    Investigation.tenant_id == tenant_id,
+                    Investigation.investigation_group_id == group_id,
+                )
+                .limit(1)
+            )
+            if existing.scalar_one_or_none() is not None:
+                return
+
+            inv = Investigation(
+                tenant_id=tenant_id,
+                investigation_group_id=group_id,
+                title=f"[Auto] Alert Cluster on {alert.source_host}",
+                source="auto_cluster",
+                status=InvestigationStatus.NEW.value,
+                confidence="high",
+                threat_score=75,
+                tp_probability=0.7,
+                fp_probability=0.3,
+                executive_summary=(
+                    f"{count} high/critical alerts detected on {alert.source_host} "
+                    f"within a {WINDOW_H}-hour window. Possible active threat or "
+                    f"misconfigured rule requiring investigation."
+                ),
+                technical_summary=(
+                    f"Alert volume threshold ({VOLUME_THRESHOLD}) exceeded: "
+                    f"{count} alerts in the last {WINDOW_H}h from this host."
+                ),
+                triggering_alert_ids=[str(alert.id)],
+                recommended_actions=[
+                    "Review all recent alerts from this host",
+                    "Determine if this is active threat activity or a rule misconfiguration",
+                    "Check host logs and running processes",
+                    "Escalate to IR if activity is confirmed malicious",
+                ],
+            )
+            db.add(inv)
+            await db.commit()
+            logger.info(
+                "volume_investigation_created",
+                investigation_id=str(inv.id),
+                host=alert.source_host,
+                alert_count=count,
+                tenant_id=str(tenant_id),
+            )
+    except Exception:
+        logger.warning("volume_investigation_failed", alert_id=str(alert.id), exc_info=True)
+
+
 def _notify_chain_alert(alert: Alert, tenant_id: UUID) -> None:
     """Fire-and-forget WebSocket notification for chain alerts."""
 

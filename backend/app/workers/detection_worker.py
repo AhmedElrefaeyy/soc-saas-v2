@@ -11,7 +11,7 @@ import structlog
 from app.core.database import database_manager
 from app.core.redis import TenantRedisClient, redis_manager
 from app.core.utils import create_task_safe
-from app.detection.attack_chain import check_attack_chains
+from app.detection.attack_chain import _volume_investigation, check_attack_chains
 from app.detection.engine import DetectionEngine
 from app.normalization.models import (
     NormalizedEvent,
@@ -158,6 +158,11 @@ class DetectionWorker:
                 # multi-stage attack chain and fires a chain alert if matched.
                 for alert in alerts:
                     await check_attack_chains(alert, tenant_uuid, redis)
+                    # Volume trigger: 3+ critical/high on same host within 1h → auto-investigation
+                    create_task_safe(
+                        _volume_investigation(alert, tenant_uuid),
+                        name=f"volume_inv_{alert.id}",
+                    )
 
                 # Fan out to WebSocket clients
                 ws_client = TenantRedisClient(redis, tenant_id_str, "pipeline")
