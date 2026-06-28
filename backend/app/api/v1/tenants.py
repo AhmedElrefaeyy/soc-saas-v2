@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.dependencies import CurrentUser, require_permission
+from app.core.dependencies import CurrentMember, CurrentUser, require_permission
 from app.core.exceptions import NotFoundError
 from app.rbac.permissions import Permission
 from app.schemas.common import APIResponse

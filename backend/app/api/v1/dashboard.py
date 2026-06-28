@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import hashlib
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
@@ -30,8 +30,7 @@ from app.core.redis import get_redis_optional
 from app.rbac.permissions import Permission
 from app.schemas.common import APIResponse
 
-if TYPE_CHECKING:
-    from redis.asyncio import Redis
+from redis.asyncio import Redis
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
