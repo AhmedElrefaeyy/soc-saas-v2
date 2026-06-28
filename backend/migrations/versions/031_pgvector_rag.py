@@ -16,18 +16,23 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # Enable pgvector extension (idempotent)
-    op.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
+    conn = op.get_bind()
+    # Check availability before attempting — pgvector must be installed on the
+    # PostgreSQL server (not just as a Python package). Railway Postgres includes
+    # it, but self-hosted or some managed providers may not.
+    result = conn.execute(sa.text(
+        "SELECT COUNT(*) FROM pg_available_extensions WHERE name = 'vector'"
+    ))
+    if result.scalar() == 0:
+        # pgvector not available on this server — skip embedding column.
+        # Semantic RAG search will be disabled; all other features work normally.
+        return
 
-    # Add embedding column (1536-dimensional, matches text-embedding-004 / ada-002)
+    op.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
     op.execute(sa.text("""
         ALTER TABLE rag_knowledge_base
           ADD COLUMN IF NOT EXISTS embedding vector(1536)
     """))
-
-    # HNSW index for fast cosine similarity search
-    # Created CONCURRENTLY so it doesn't block reads/writes during migration.
-    # Using raw SQL because alembic's op.create_index doesn't know about HNSW.
     op.execute(sa.text("""
         CREATE INDEX IF NOT EXISTS ix_rag_kb_embedding_hnsw
         ON rag_knowledge_base
@@ -37,6 +42,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    conn = op.get_bind()
+    result = conn.execute(sa.text(
+        "SELECT COUNT(*) FROM pg_available_extensions WHERE name = 'vector'"
+    ))
+    if result.scalar() == 0:
+        return
     op.execute(sa.text("DROP INDEX IF EXISTS ix_rag_kb_embedding_hnsw"))
     op.execute(sa.text("""
         ALTER TABLE rag_knowledge_base DROP COLUMN IF EXISTS embedding

@@ -47,6 +47,21 @@ async def main() -> int:
     try:
         head_rev = _get_alembic_head()
 
+        # If pgvector extension is not available on this PostgreSQL server,
+        # temporarily remove the embedding column from the rag_knowledge_base
+        # table metadata so create_all doesn't fail on the unknown 'vector' type.
+        async with engine.connect() as probe:
+            result = await probe.execute(text(
+                "SELECT COUNT(*) FROM pg_available_extensions WHERE name = 'vector'"
+            ))
+            has_pgvector = bool(result.scalar())
+
+        if not has_pgvector:
+            rag_table = Base.metadata.tables.get("rag_knowledge_base")
+            if rag_table is not None and "embedding" in rag_table.c:
+                rag_table._columns.remove(rag_table.c["embedding"])
+                print("[ensure_schema] pgvector not available — skipping embedding column.")
+
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all, checkfirst=True)
 
