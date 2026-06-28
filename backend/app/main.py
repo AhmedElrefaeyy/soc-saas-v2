@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         _ini_path = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
         _alembic_cfg = Config(os.path.normpath(_ini_path))
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None,
             lambda: alembic_command.upgrade(_alembic_cfg, "head"),

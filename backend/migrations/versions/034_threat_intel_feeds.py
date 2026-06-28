@@ -15,17 +15,35 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Create ENUMs explicitly with IF NOT EXISTS guard so re-runs after a
+    # partial failure don't crash with "type already exists".
+    op.execute(sa.text("""
+        DO $$ BEGIN
+            CREATE TYPE threat_feed_type_enum AS ENUM ('stix_taxii','csv','opencti','misp','manual');
+        EXCEPTION WHEN duplicate_object THEN null; END $$
+    """))
+    op.execute(sa.text("""
+        DO $$ BEGIN
+            CREATE TYPE threat_feed_status_enum AS ENUM ('active','error','syncing');
+        EXCEPTION WHEN duplicate_object THEN null; END $$
+    """))
+    op.execute(sa.text("""
+        DO $$ BEGIN
+            CREATE TYPE threat_ioc_type_enum AS ENUM ('ip','domain','hash','url','email');
+        EXCEPTION WHEN duplicate_object THEN null; END $$
+    """))
+
     op.create_table(
         "threat_feeds",
         sa.Column("id",                   postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("tenant_id",            postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False),
         sa.Column("name",                 sa.String(255), nullable=False),
-        sa.Column("type",                 sa.Enum("stix_taxii", "csv", "opencti", "misp", "manual", name="threat_feed_type_enum"), nullable=False),
+        sa.Column("type",                 sa.Enum("stix_taxii", "csv", "opencti", "misp", "manual", name="threat_feed_type_enum", create_type=False), nullable=False),
         sa.Column("endpoint_url",         sa.String(2048), nullable=True),
         sa.Column("api_key_encrypted",    sa.Text, nullable=True),
         sa.Column("last_synced_at",       sa.DateTime(timezone=True), nullable=True),
         sa.Column("ioc_count",            sa.Integer, nullable=False, server_default="0"),
-        sa.Column("status",               sa.Enum("active", "error", "syncing", name="threat_feed_status_enum"), nullable=False, server_default="active"),
+        sa.Column("status",               sa.Enum("active", "error", "syncing", name="threat_feed_status_enum", create_type=False), nullable=False, server_default="active"),
         sa.Column("error_message",        sa.Text, nullable=True),
         sa.Column("sync_interval_minutes",sa.Integer, nullable=False, server_default="1440"),
         sa.Column("created_at",           sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
@@ -40,7 +58,7 @@ def upgrade() -> None:
         sa.Column("tenant_id",  postgresql.UUID(as_uuid=True), sa.ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False),
         sa.Column("feed_id",    postgresql.UUID(as_uuid=True), sa.ForeignKey("threat_feeds.id", ondelete="CASCADE"), nullable=False),
         sa.Column("indicator",  sa.String(2048), nullable=False),
-        sa.Column("type",       sa.Enum("ip", "domain", "hash", "url", "email", name="threat_ioc_type_enum"), nullable=False),
+        sa.Column("type",       sa.Enum("ip", "domain", "hash", "url", "email", name="threat_ioc_type_enum", create_type=False), nullable=False),
         sa.Column("confidence", sa.Integer, nullable=False, server_default="50"),
         sa.Column("first_seen", sa.DateTime(timezone=True), nullable=False),
         sa.Column("last_seen",  sa.DateTime(timezone=True), nullable=False),

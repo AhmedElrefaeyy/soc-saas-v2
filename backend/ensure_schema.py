@@ -57,10 +57,14 @@ async def main() -> int:
             has_pgvector = bool(result.scalar())
 
         if not has_pgvector:
+            # pgvector not available — drop the entire rag_knowledge_base table from
+            # metadata so create_all doesn't fail on the unknown 'vector' type.
+            # The table itself was already created by migration 011 (without the
+            # embedding column), so this only affects create_all on a fresh DB.
             rag_table = Base.metadata.tables.get("rag_knowledge_base")
-            if rag_table is not None and "embedding" in rag_table.c:
-                rag_table._columns.remove(rag_table.c["embedding"])
-                print("[ensure_schema] pgvector not available — skipping embedding column.")
+            if rag_table is not None:
+                Base.metadata.remove(rag_table)
+                print("[ensure_schema] pgvector not available — excluded rag_knowledge_base from create_all.")
 
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all, checkfirst=True)

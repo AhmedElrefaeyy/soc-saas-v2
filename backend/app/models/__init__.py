@@ -37,6 +37,7 @@ from app.models.response_action import ResponseAction
 from app.models.suppression_rule import SuppressionRule
 from app.models.tenant import Tenant
 from app.models.tenant_member import TenantMember
+from app.models.threat_feed import ThreatFeed, ThreatIOC
 from app.models.user import User
 
 __all__ = [
@@ -73,4 +74,6 @@ __all__ = [
     "ResponseAction",
     "PlaybookAutoConfig",
     "GeneratedReport",
+    "ThreatFeed",
+    "ThreatIOC",
 ]
