@@ -1300,7 +1300,7 @@ async def get_top_entities(
 
     return APIResponse.ok(
         {
-            "hosts": _aggregate(lambda a: a.hostname),
+            "hosts": _aggregate(lambda a: a.source_host),
             "users": _aggregate(lambda a: a.username),
             "ips": _aggregate(lambda a: a.source_ip),
         }
