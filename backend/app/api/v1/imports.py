@@ -238,7 +238,7 @@ async def upload_logs(
     # ── Publish to pipeline ───────────────────────────────────────────────────
     from redis.asyncio import Redis
 
-    redis_typed: Redis[str] = redis  # type: ignore[assignment]
+    redis_typed: Redis = redis  # type: ignore[assignment]
     tenant_client = TenantRedisClient(redis_typed, str(m.tenant_id), stream_names.SUBSYSTEM)
     idempotency = IdempotencyStore(tenant_client)
     publisher = StreamPublisher(tenant_client)

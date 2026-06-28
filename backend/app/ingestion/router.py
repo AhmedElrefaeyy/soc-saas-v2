@@ -87,7 +87,7 @@ async def ingest_batch(
             f"Reason: {agent.containment_reason or 'Security containment active'}",
         )
 
-    redis_typed: Redis[str] = redis  # type: ignore[assignment]
+    redis_typed: Redis = redis  # type: ignore[assignment]
     tenant_client = TenantRedisClient(redis_typed, str(agent.tenant_id), stream_names.SUBSYSTEM)
 
     # Per-tenant ingest rate limit — prevents a single noisy tenant from
@@ -171,7 +171,7 @@ async def pipeline_status(
 
     from redis.asyncio import Redis as _Redis
 
-    redis_typed: _Redis[str] = redis  # type: ignore[assignment]
+    redis_typed: _Redis = redis  # type: ignore[assignment]
     pipeline_client = TenantRedisClient(redis_typed, str(agent.tenant_id), stream_names.SUBSYSTEM)
 
     try:

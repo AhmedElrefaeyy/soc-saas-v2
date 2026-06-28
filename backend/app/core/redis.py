@@ -78,7 +78,7 @@ class RedisManager:
             self._pool = None
         logger.info("redis_connection_closed")
 
-    def get_client(self) -> Redis[str]:
+    def get_client(self) -> Redis:
         if self._client is None:
             raise RuntimeError("Redis not initialized. Call initialize() first.")
         return self._client
@@ -106,11 +106,11 @@ redis_manager = RedisManager()
 # ─── FastAPI dependencies ────────────────────────────────────────────────────
 
 
-async def get_redis() -> Redis[str]:
+async def get_redis() -> Redis:
     return redis_manager.get_client()
 
 
-async def get_redis_optional() -> Redis[str] | None:
+async def get_redis_optional() -> Redis | None:
     """Like get_redis but returns None instead of raising if Redis is down."""
     try:
         return redis_manager.get_client()
@@ -134,7 +134,7 @@ async def initialize_stream_redis() -> None:
     logger.info("stream_redis_initialized", url=settings.REDIS_STREAM_URL)
 
 
-async def get_stream_redis() -> Redis[str]:
+async def get_stream_redis() -> Redis:
     """Returns stream-dedicated Redis. Falls back to app Redis if not initialized."""
     try:
         return _stream_redis_manager.get_client()
@@ -159,7 +159,7 @@ class TenantRedisClient:
 
     def __init__(
         self,
-        redis: Redis[str],
+        redis: Redis,
         tenant_id: str,
         subsystem: str,
     ) -> None:

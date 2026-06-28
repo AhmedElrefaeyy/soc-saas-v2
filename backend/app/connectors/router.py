@@ -104,7 +104,7 @@ async def connector_ingest(
     # ── 5. Queue to raw_events stream ─────────────────────────────────────────
     from redis.asyncio import Redis
 
-    redis_typed: Redis[str] = redis  # type: ignore[assignment]
+    redis_typed: Redis = redis  # type: ignore[assignment]
     tenant_client = TenantRedisClient(redis_typed, str(tenant_id), stream_names.SUBSYSTEM)
 
     result = await ConnectorService.ingest(

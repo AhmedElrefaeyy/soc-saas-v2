@@ -125,7 +125,7 @@ class ThreatIntelService:
     # ── AbuseIPDB ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    async def _check_abuseipdb(ip: str, redis: Redis[str] | None) -> ThreatIntelResult:
+    async def _check_abuseipdb(ip: str, redis: Redis | None) -> ThreatIntelResult:
         if not settings.ABUSEIPDB_API_KEY:
             return ThreatIntelResult()
         if _cb_is_open("abuseipdb"):
@@ -192,7 +192,7 @@ class ThreatIntelService:
     # ── AlienVault OTX ────────────────────────────────────────────────────────
 
     @staticmethod
-    async def _check_otx(ip: str, redis: Redis[str] | None) -> list[str]:
+    async def _check_otx(ip: str, redis: Redis | None) -> list[str]:
         if not settings.ALIENVAULT_API_KEY:
             return []
         if _cb_is_open("otx"):
@@ -240,7 +240,7 @@ class ThreatIntelService:
     # ── VirusTotal ────────────────────────────────────────────────────────────
 
     @staticmethod
-    async def _check_virustotal(ip: str, redis: Redis[str] | None) -> list[str]:
+    async def _check_virustotal(ip: str, redis: Redis | None) -> list[str]:
         if not settings.VIRUSTOTAL_API_KEY:
             return []
         if _cb_is_open("virustotal"):
@@ -295,7 +295,7 @@ class ThreatIntelService:
     # ── Main enrichment entry point ───────────────────────────────────────────
 
     @staticmethod
-    async def enrich_ip(ip: str | None, redis: Redis[str] | None = None) -> EnrichmentResult:
+    async def enrich_ip(ip: str | None, redis: Redis | None = None) -> EnrichmentResult:
         """
         Enriches a single IP with GeoIP + ThreatIntel data.
 

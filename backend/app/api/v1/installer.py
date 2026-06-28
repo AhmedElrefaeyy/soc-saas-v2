@@ -167,7 +167,7 @@ async def generate_installer_token(
     # Graceful fallback: if Redis is unavailable, skip rate limiting and proceed.
     remaining = _RATE_LIMIT
     if redis is not None:
-        redis_typed: Redis[str] = redis  # type: ignore[assignment]
+        redis_typed: Redis = redis  # type: ignore[assignment]
         try:
             rate_client = TenantRedisClient(redis_typed, str(m.tenant_id), "installer")
             allowed, remaining = await rate_client.check_rate_limit(
@@ -320,7 +320,7 @@ async def bootstrap_enroll(
     # ── Brute-force protection: IP-scoped rate limit ───────────────────────────
     client_ip = _get_client_ip(request)
     if redis is not None:
-        redis_typed: Redis[str] = redis  # type: ignore[assignment]
+        redis_typed: Redis = redis  # type: ignore[assignment]
         ip_key = f"enroll_ip:{client_ip}"
         pipe = redis_typed.pipeline()
         pipe.incr(ip_key)

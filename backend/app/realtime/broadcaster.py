@@ -21,7 +21,7 @@ class RedisBroadcaster:
     to their local clients — enabling horizontal scaling without sticky sessions.
     """
 
-    def __init__(self, redis: Redis[str]) -> None:  # type: ignore[type-arg]
+    def __init__(self, redis: Redis) -> None:  # type: ignore[type-arg]
         self._redis = redis
         self._stop_event = asyncio.Event()
 

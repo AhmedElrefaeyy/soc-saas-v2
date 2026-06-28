@@ -161,7 +161,7 @@ class GeoIPService:
     _IP_API_FIELDS = "status,country,countryCode,city,lat,lon,isp,query"
 
     @staticmethod
-    async def lookup(ip: str, redis: Redis[str] | None = None) -> GeoResult:  # type: ignore[name-defined]
+    async def lookup(ip: str, redis: Redis | None = None) -> GeoResult:  # type: ignore[name-defined]
         if not ip or _is_private(ip):
             return GeoResult(is_private=True)
 
@@ -209,7 +209,7 @@ class GeoIPService:
     @staticmethod
     async def _lookup_ipapi(
         ip: str,
-        redis: Redis[str] | None,
+        redis: Redis | None,
         cache_key: str,
         lock_key: str,
     ) -> GeoResult:
@@ -251,7 +251,7 @@ class GeoIPService:
 
 
 async def _cache_result(
-    redis: Redis[str] | None,  # type: ignore[name-defined]
+    redis: Redis | None,  # type: ignore[name-defined]
     cache_key: str,
     lock_key: str,
     result: GeoResult,

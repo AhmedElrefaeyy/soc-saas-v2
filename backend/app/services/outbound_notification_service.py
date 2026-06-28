@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import socket
 import urllib.parse
 from datetime import UTC, datetime
 from uuid import UUID
@@ -20,10 +21,21 @@ import structlog
 log = structlog.get_logger(__name__)
 
 
+def _is_private_ip(ip_str: str) -> bool:
+    """Return True if the IP string is private/loopback/link-local/reserved."""
+    try:
+        addr = ipaddress.ip_address(ip_str)
+        return addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved
+    except ValueError:
+        return False
+
+
 def _validate_webhook_url(url: str) -> None:
     """
     Reject webhook URLs that point to private/loopback addresses (SSRF prevention).
-    Only HTTPS is allowed for outbound webhooks in production.
+    Performs both static hostname checks and a DNS resolution check to prevent
+    DNS rebinding attacks (domain resolves to public IP at validation time, then
+    switches to a private IP at request time).
     Raises ValueError if the URL is not permitted.
     """
     try:
@@ -35,19 +47,42 @@ def _validate_webhook_url(url: str) -> None:
         raise ValueError(f"Webhook URL must use HTTP(S), got: {parsed.scheme!r}")
 
     hostname = parsed.hostname or ""
-    # Reject bare IP addresses that are private/loopback/link-local
+    if not hostname:
+        raise ValueError("Webhook URL has no hostname")
+
+    # Fast path: bare IP address — validate directly without DNS roundtrip
     try:
         addr = ipaddress.ip_address(hostname)
         if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
             raise ValueError(f"Webhook URL targets a private/reserved IP: {hostname}")
+        return  # public bare IP — allowed, skip DNS
     except ValueError as exc:
-        # Not an IP address — check for explicit localhost variants
-        hostname_lower = hostname.lower()
-        if hostname_lower in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
-            raise ValueError(f"Webhook URL targets localhost: {hostname}") from None
-        # Re-raise only if raised inside the try block (i.e., it IS an IP but invalid)
         if "Webhook URL targets" in str(exc):
             raise
+
+    # Block explicit localhost aliases before DNS (defence-in-depth)
+    if hostname.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        raise ValueError(f"Webhook URL targets localhost: {hostname}")
+
+    # DNS rebinding prevention: resolve all A/AAAA records and reject any
+    # that land in private/reserved ranges. This closes the window where an
+    # attacker-controlled domain first resolves to a routable IP (passes the
+    # static check above) and is later flipped to 169.254.x.x or 10.x.x.x.
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        addrinfos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except OSError:
+        raise ValueError(f"Webhook URL hostname could not be resolved: {hostname!r}") from None
+
+    if not addrinfos:
+        raise ValueError(f"Webhook URL hostname returned no addresses: {hostname!r}")
+
+    for *_, sockaddr in addrinfos:
+        resolved_ip = sockaddr[0]
+        if _is_private_ip(resolved_ip):
+            raise ValueError(
+                f"Webhook URL {hostname!r} resolves to private IP {resolved_ip} — SSRF blocked"
+            )
 
 
 _SEVERITY_RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}

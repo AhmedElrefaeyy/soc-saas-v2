@@ -134,4 +134,4 @@ def require_permission(permission: Permission) -> Depends:
 CurrentUser = Annotated["User", Depends(get_current_user)]  # type: ignore
 CurrentMember = Annotated["TenantMember", Depends(get_current_tenant_member)]  # type: ignore
 DBSession = Annotated[AsyncSession, Depends(get_db)]
-RedisClient = Annotated["Redis[str]", Depends(get_redis)]  # type: ignore
+RedisClient = Annotated["Redis", Depends(get_redis)]  # type: ignore

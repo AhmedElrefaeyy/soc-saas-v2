@@ -48,7 +48,7 @@ def _kpi_key(tenant_id: str, slug: str, time_range: str) -> str:
     return f"tenant:{tenant_id}:{_KPI_SUBSYSTEM}:kpi:{slug}:{tr_hash}"
 
 
-async def _kpi_get(redis: Redis[str] | None, key: str) -> str | None:
+async def _kpi_get(redis: Redis | None, key: str) -> str | None:
     if redis is None:
         return None
     try:
@@ -57,7 +57,7 @@ async def _kpi_get(redis: Redis[str] | None, key: str) -> str | None:
         return None
 
 
-async def _kpi_set(redis: Redis[str] | None, key: str, value: str) -> None:
+async def _kpi_set(redis: Redis | None, key: str, value: str) -> None:
     if redis is None:
         return
     try:
@@ -281,7 +281,7 @@ def _pct_delta(current: int, prev: int) -> float:
 async def get_dashboard_summary(
     member: Annotated[object, require_permission(Permission.EVENTS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    redis: Annotated[Redis[str] | None, Depends(get_redis_optional)],
+    redis: Annotated[Redis | None, Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[DashboardSummary]:
     from app.models.tenant_member import TenantMember
@@ -502,7 +502,7 @@ async def get_dashboard_summary(
 async def get_ingestion_rate(
     member: Annotated[object, require_permission(Permission.EVENTS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    redis: Annotated[Redis[str] | None, Depends(get_redis_optional)],
+    redis: Annotated[Redis | None, Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[IngestionRateSeries]:
     from app.models.tenant_member import TenantMember
@@ -599,7 +599,7 @@ async def get_ingestion_rate(
 async def get_detection_health(
     member: Annotated[object, require_permission(Permission.RULES_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    redis: Annotated[Redis[str] | None, Depends(get_redis_optional)],
+    redis: Annotated[Redis | None, Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[DetectionHealthData]:
     from app.models.tenant_member import TenantMember
@@ -714,7 +714,7 @@ async def get_detection_health(
 async def get_mitre_coverage(
     member: Annotated[object, require_permission(Permission.EVENTS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    redis: Annotated[Redis[str] | None, Depends(get_redis_optional)],
+    redis: Annotated[Redis | None, Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[MitreCoverageData]:
     from app.models.tenant_member import TenantMember
@@ -814,7 +814,7 @@ async def get_mitre_coverage(
 async def get_correlation_activity(
     member: Annotated[object, require_permission(Permission.INVESTIGATIONS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    redis: Annotated[Redis[str] | None, Depends(get_redis_optional)],
+    redis: Annotated[Redis | None, Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[CorrelationActivityData]:
     from app.models.tenant_member import TenantMember
@@ -935,7 +935,7 @@ async def get_correlation_activity(
 async def get_ai_operations(
     member: Annotated[object, require_permission(Permission.INVESTIGATIONS_READ)],
     db: Annotated[AsyncSession, Depends(get_db)],
-    redis: Annotated[Redis[str] | None, Depends(get_redis_optional)],
+    redis: Annotated[Redis | None, Depends(get_redis_optional)],
     time_range: DashboardTimeRange = Query(default="last_24h"),
 ) -> APIResponse[AIOperationsData]:
     from app.models.tenant_member import TenantMember
