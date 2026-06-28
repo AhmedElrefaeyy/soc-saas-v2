@@ -13,6 +13,8 @@ from app.core.exceptions import ForbiddenError, UnauthorizedError
 from app.core.logging import user_id_ctx
 from app.core.redis import get_redis
 from app.core.security import decode_access_token
+from app.models.tenant_member import TenantMember
+from app.models.user import User
 from app.rbac.permissions import Permission
 from app.rbac.roles import get_effective_permissions
 
@@ -27,7 +29,7 @@ _bearer = HTTPBearer(auto_error=False)
 async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer)],
     db: Annotated[AsyncSession, Depends(get_db)],
-) -> User:  # type: ignore[name-defined]
+) -> User:
     """
     Decodes the Bearer JWT and returns the authenticated User.
     Raises UnauthorizedError if the token is missing, invalid, or the user is inactive.
@@ -71,9 +73,9 @@ async def get_current_user(
 
 async def get_current_tenant_member(
     x_tenant_id: Annotated[str | None, Header(alias="X-Tenant-ID")] = None,
-    current_user: Annotated[User, Depends(get_current_user)] = None,  # type: ignore
-    db: Annotated[AsyncSession, Depends(get_db)] = None,  # type: ignore
-) -> TenantMember:  # type: ignore[name-defined]
+    current_user: Annotated[User, Depends(get_current_user)] = None,  # type: ignore[assignment]
+    db: Annotated[AsyncSession, Depends(get_db)] = None,  # type: ignore[assignment]
+) -> TenantMember:
     """
     Resolves the tenant context from the X-Tenant-ID header and validates
     that the current user is an active member of that tenant.
@@ -110,8 +112,8 @@ def require_permission(permission: Permission) -> Depends:
     """
 
     async def _check(
-        member: Annotated[TenantMember, Depends(get_current_tenant_member)],  # type: ignore
-    ) -> TenantMember:  # type: ignore[name-defined]
+        member: Annotated[TenantMember, Depends(get_current_tenant_member)],
+    ) -> TenantMember:
         custom = getattr(member, "custom_permissions", None)
         effective = get_effective_permissions(member.role, custom)
         if permission not in effective:
@@ -131,7 +133,7 @@ def require_permission(permission: Permission) -> Depends:
 
 # ─── Re-exports for route convenience ────────────────────────────────────────
 
-CurrentUser = Annotated["User", Depends(get_current_user)]  # type: ignore
-CurrentMember = Annotated["TenantMember", Depends(get_current_tenant_member)]  # type: ignore
+CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentMember = Annotated[TenantMember, Depends(get_current_tenant_member)]
 DBSession = Annotated[AsyncSession, Depends(get_db)]
-RedisClient = Annotated["Redis", Depends(get_redis)]  # type: ignore
+RedisClient = Annotated[object, Depends(get_redis)]  # Redis type without generic param
