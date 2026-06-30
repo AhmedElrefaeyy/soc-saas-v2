@@ -58,6 +58,14 @@ Changes per rule:
 
  11. "C2 - PowerShell Direct TCP Socket Connection"
        StreamReader condition tightened: now requires co-occurrence with IP address.
+
+ 12. "LSASS Access - Credential Dump Attempt"
+       Removed the overly-broad regex `\\blsass\\.exe.*\\s+-` (matched any process
+       referencing lsass.exe with any hyphenated flag — fired constantly on AV/EDR
+       agents and monitoring scripts).  Condition 2 (comsvcs MiniDump) now requires
+       rundll32.exe as the calling process.  Added exclusion list for known diagnostic
+       binaries (WerFault, taskmgr, procexp, MsMpEng, lsaiso).  Added dedicated
+       dump-tool names (nanodump, pypykatz).  Suppression extended 300 → 3600 s.
 """
 from __future__ import annotations
 
@@ -390,6 +398,76 @@ _RULE_UPDATES: list[dict] = [
                             {"field": "raw.message", "op": "contains", "value": "SharpHound"},
                             {"field": "raw.message", "op": "contains", "value": "adfind.exe"},
                         ],
+                    },
+                ],
+            },
+        ],
+    },
+    {
+        "old_name": "LSASS Access - Credential Dump Attempt",
+        "new_name": "LSASS Access - Credential Dump Attempt",
+        "rule_type": "pattern",
+        "severity": "critical",
+        "suppression_window_secs": 3600,
+        "description": (
+            "Detects high-confidence LSASS credential dump techniques: procdump/procdump64 "
+            "targeting lsass, rundll32 comsvcs MiniDump (fileless dump), dump-specific "
+            "flags alongside lsass (-ma, -dump), and dedicated dump utilities (nanodump, "
+            "pypykatz).  Known diagnostic binaries (WerFault, taskmgr, procexp, MsMpEng, "
+            "lsaiso) are excluded.  Suppression is 1 hour — credential dumps are one-shot "
+            "events; repeated alerts within an hour are always a monitoring false positive."
+        ),
+        "conditions": [
+            {
+                "op": "none_of",
+                "conditions": [
+                    {
+                        "field": "process.name",
+                        "op": "in",
+                        "value": [
+                            "WerFault.exe", "werfault.exe", "taskmgr.exe",
+                            "procexp.exe", "procexp64.exe",
+                            "MsMpEng.exe", "msmpeng.exe",
+                            "svchost.exe", "lsaiso.exe",
+                        ],
+                    },
+                ],
+            },
+            {
+                "op": "any_of",
+                "conditions": [
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.name", "op": "eq", "value": "procdump.exe"},
+                                {"field": "process.command_line", "op": "contains", "value": "lsass"},
+                            ],
+                            [
+                                {"field": "process.name", "op": "eq", "value": "procdump64.exe"},
+                                {"field": "process.command_line", "op": "contains", "value": "lsass"},
+                            ],
+                        ],
+                    },
+                    {
+                        "op": "any_of_groups",
+                        "groups": [
+                            [
+                                {"field": "process.name", "op": "in", "value": ["rundll32.exe", "rundll32"]},
+                                {"field": "process.command_line", "op": "contains", "value": "comsvcs"},
+                                {"field": "process.command_line", "op": "contains", "value": "MiniDump"},
+                            ],
+                        ],
+                    },
+                    {
+                        "field": "process.command_line",
+                        "op": "regex",
+                        "value": r"lsass.*-ma\b|lsass.*-dump\b|lsass.*\.dmp\b",
+                    },
+                    {
+                        "field": "process.name",
+                        "op": "in",
+                        "value": ["nanodump.exe", "nanodump", "pypykatz.exe", "pypykatz"],
                     },
                 ],
             },

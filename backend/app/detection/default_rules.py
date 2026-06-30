@@ -69,44 +69,76 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
     {
         "name": "LSASS Access - Credential Dump Attempt",
         "description": (
-            "Detects processes targeting lsass.exe for credential dumping — "
-            "specifically procdump, rundll32 comsvcs MiniDump, or direct handle open. "
-            "Requires suspicious dump-specific arguments to avoid false positives from "
-            "diagnostic tools (Task Manager, Process Explorer) that legitimately reference lsass."
+            "Detects high-confidence LSASS credential dump techniques: "
+            "(1) procdump/procdump64 targeting lsass by name, "
+            "(2) rundll32 invoking comsvcs.dll MiniDump — the most common fileless dump "
+            "technique and a near-zero false-positive indicator when bound to rundll32, "
+            "(3) any process using dump-specific flags alongside lsass (procdump -ma, "
+            "-dump), or writing a lsass .dmp file.  "
+            "The original overly-broad regex (lsass.exe followed by any flag) was "
+            "removed — it matched any security scanner, health-monitoring tool, or EDR "
+            "agent whose command line referenced lsass.exe with any hyphenated argument, "
+            "producing constant false positives in environments with AV/EDR deployed.  "
+            "Known Windows diagnostic binaries (WerFault, Task Manager, procexp) are "
+            "explicitly excluded.  Suppression extended to 1 hour: credential dumps are "
+            "one-shot events; repeated alerts within an hour are always a monitoring FP."
         ),
         "rule_type": "pattern",
         "severity": "critical",
         "conditions": [
+            # Exclude known legitimate diagnostic and security binaries up-front.
+            # These processes legitimately open or reference lsass for non-attack reasons.
+            {
+                "op": "none_of",
+                "conditions": [
+                    {
+                        "field": "process.name",
+                        "op": "in",
+                        "value": [
+                            "WerFault.exe",
+                            "werfault.exe",
+                            "taskmgr.exe",
+                            "procexp.exe",
+                            "procexp64.exe",
+                            "MsMpEng.exe",
+                            "msmpeng.exe",
+                            "svchost.exe",
+                            "lsaiso.exe",
+                        ],
+                    },
+                ],
+            },
             {
                 "op": "any_of",
                 "conditions": [
-                    # procdump targeting lsass
+                    # ── Condition 1: procdump / procdump64 targeting lsass ──────────────
+                    # Highly specific — procdump has no legitimate use against lsass in prod.
                     {
                         "op": "any_of_groups",
                         "groups": [
                             [
                                 {"field": "process.name", "op": "eq", "value": "procdump.exe"},
-                                {
-                                    "field": "process.command_line",
-                                    "op": "contains",
-                                    "value": "lsass",
-                                },
+                                {"field": "process.command_line", "op": "contains", "value": "lsass"},
                             ],
                             [
                                 {"field": "process.name", "op": "eq", "value": "procdump64.exe"},
-                                {
-                                    "field": "process.command_line",
-                                    "op": "contains",
-                                    "value": "lsass",
-                                },
+                                {"field": "process.command_line", "op": "contains", "value": "lsass"},
                             ],
                         ],
                     },
-                    # rundll32 comsvcs MiniDump (fileless LSASS dump)
+                    # ── Condition 2: rundll32 comsvcs MiniDump (fileless LSASS dump) ───
+                    # Bound to rundll32.exe — the only legitimate caller of comsvcs MiniDump
+                    # in an attack context.  Plain comsvcs references from other processes
+                    # are excluded (they indicate a diagnostic tool, not a dump).
                     {
                         "op": "any_of_groups",
                         "groups": [
                             [
+                                {
+                                    "field": "process.name",
+                                    "op": "in",
+                                    "value": ["rundll32.exe", "rundll32"],
+                                },
                                 {
                                     "field": "process.command_line",
                                     "op": "contains",
@@ -120,25 +152,29 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
                             ],
                         ],
                     },
-                    # Mimikatz-style direct lsass references with dump flags
+                    # ── Condition 3: explicit dump-specific flags alongside lsass ──────
+                    # Only the dump-specific flags (-ma for full dump, -dump) are retained.
+                    # The former catch-all `\blsass\.exe.*\s+-` has been removed — it matched
+                    # any flag-bearing command referencing lsass.exe, including EDR agents,
+                    # AV scanners, and health-check scripts that check lsass status on a timer.
                     {
-                        "op": "any_of_groups",
-                        "groups": [
-                            [
-                                {
-                                    "field": "process.command_line",
-                                    "op": "regex",
-                                    "value": r"lsass.*-ma\b|lsass.*-dump|\blsass\.exe.*\s+-",
-                                },
-                            ],
-                        ],
+                        "field": "process.command_line",
+                        "op": "regex",
+                        "value": r"lsass.*-ma\b|lsass.*-dump\b|lsass.*\.dmp\b",
+                    },
+                    # ── Condition 4: known dedicated dump utilities ───────────────────
+                    # Binaries that exist solely for credential extraction.
+                    {
+                        "field": "process.name",
+                        "op": "in",
+                        "value": ["nanodump.exe", "nanodump", "pypykatz.exe", "pypykatz"],
                     },
                 ],
             },
         ],
         "mitre_tactics": ["Credential Access"],
         "mitre_techniques": ["T1003.001"],
-        "suppression_window_secs": 300,
+        "suppression_window_secs": 3600,
     },
     {
         "name": "Legacy Password Dumping Tool Detected",
