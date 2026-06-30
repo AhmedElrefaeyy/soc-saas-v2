@@ -358,8 +358,8 @@ function filtersToParams(filterState: FilterState, pagination: PaginationState, 
     }
   }
   if (filterState.dateRange) {
-    params.fromTs = filterState.dateRange.from;
-    params.toTs   = filterState.dateRange.to;
+    params.fromTs = filterState.dateRange.from ?? undefined;
+    params.toTs   = filterState.dateRange.to   ?? undefined;
   }
   return params;
 }

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -139,6 +139,7 @@ class GeneratePlaybookRequest(BaseModel):
 
 
 class CompleteStepRequest(BaseModel):
+    action: Literal["complete", "skip"] = "complete"
     notes: str | None = Field(default=None, max_length=5000)
     result: str | None = Field(default=None, max_length=2000)
 

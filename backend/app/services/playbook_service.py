@@ -718,6 +718,7 @@ Respond ONLY with the JSON array."""
         actor_id: UUID,
         notes: str | None = None,
         result_text: str | None = None,
+        action: str = "complete",
     ) -> PlaybookStep:
         # Verify playbook belongs to tenant
         pb_result = await db.execute(
@@ -744,9 +745,10 @@ Respond ONLY with the JSON array."""
 
             raise NotFoundError(f"Step {step_id} not found")
 
-        step.status = "completed"
-        step.completed_at = datetime.now(tz=UTC)
-        step.completed_by_id = actor_id
+        step.status = "skipped" if action == "skip" else "completed"
+        if action != "skip":
+            step.completed_at = datetime.now(tz=UTC)
+            step.completed_by_id = actor_id
         if notes:
             step.notes = notes
         if result_text:

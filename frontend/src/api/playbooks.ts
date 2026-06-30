@@ -91,7 +91,7 @@ export const playbooksApi = {
   completeStep: (
     playbookId: string,
     stepId: string,
-    payload: { notes?: string; result?: string }
+    payload: { action?: 'complete' | 'skip'; notes?: string; result?: string }
   ): Promise<PlaybookStep> =>
     apiPatch<PlaybookStep>(`/playbooks/${playbookId}/steps/${stepId}`, payload),
 

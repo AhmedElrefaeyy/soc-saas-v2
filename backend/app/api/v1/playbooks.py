@@ -400,6 +400,7 @@ async def complete_step(
         actor_id=m.user_id,
         notes=payload.notes,
         result_text=payload.result,
+        action=payload.action,
     )
     await db.commit()
     return APIResponse.ok(PlaybookStepResponse.model_validate(step))

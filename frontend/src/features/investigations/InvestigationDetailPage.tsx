@@ -21,6 +21,7 @@ import { TimelineTab } from "./components/tabs/TimelineTab";
 import { GraphTab } from "./components/tabs/GraphTab";
 import { EvidenceTab } from "./components/tabs/EvidenceTab";
 import { PlaybookTab } from "./components/tabs/PlaybookTab";
+import { GeneratePlaybookPanel } from "./components/tabs/GeneratePlaybookPanel";
 import { ProcessTreeTab } from "./components/tabs/ProcessTreeTab";
 import { NetworkSankeyTab } from "./components/tabs/NetworkSankeyTab";
 import { AITriageAssistant } from "./components/AITriageAssistant";
@@ -175,7 +176,7 @@ export function InvestigationDetailPage() {
     { id: "evidence",     label: "Evidence",     icon: Paperclip                             },
     { id: "process_tree", label: "Process Tree", icon: GitBranch                             },
     { id: "network",      label: "Network",      icon: Network                               },
-    { id: "playbook",     label: "Playbook",     icon: BookOpen, disabled: !linkedPlaybook   },
+    { id: "playbook",     label: "Playbook",     icon: BookOpen, badge: !!linkedPlaybook     },
   ];
 
   return (
@@ -342,8 +343,14 @@ export function InvestigationDetailPage() {
             {activeTab === "network" && (
               <NetworkSankeyTab id={id!} isActive={activeTab === "network"} />
             )}
-            {activeTab === "playbook" && linkedPlaybook && (
-              <PlaybookTab playbook={linkedPlaybook} isActive={activeTab === "playbook"} />
+            {activeTab === "playbook" && (
+              linkedPlaybook
+                ? <PlaybookTab
+                    playbook={linkedPlaybook}
+                    isActive={activeTab === "playbook"}
+                    onAllComplete={() => updateStatus.mutate("resolved")}
+                  />
+                : <GeneratePlaybookPanel inv={inv} />
             )}
           </div>
         </div>
