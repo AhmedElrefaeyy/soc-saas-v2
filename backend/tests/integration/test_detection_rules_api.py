@@ -70,17 +70,24 @@ class TestDetectionRulesCRUD:
         assert resp.status_code == 201
         assert resp.json()["data"]["rule_type"] == "threshold"
 
-    async def test_list_rules_empty_initially(self, client: AsyncClient, setup: dict):
+    async def test_list_rules_returns_seeded_defaults(self, client: AsyncClient, setup: dict):
+        """New tenants receive default detection rules at creation time."""
         resp = await client.get(f"{settings.API_PREFIX}/rules", headers=setup["headers"])
         assert resp.status_code == 200
-        assert resp.json()["data"] == []
+        body = resp.json()
+        assert isinstance(body["data"], list)
+        assert body["pagination"]["total"] > 0
 
     async def test_list_rules_after_creation(self, client: AsyncClient, setup: dict):
+        # Capture baseline (default rules seeded on tenant creation)
+        baseline = await client.get(f"{settings.API_PREFIX}/rules", headers=setup["headers"])
+        initial_count = baseline.json()["pagination"]["total"]
+
         await client.post(
             f"{settings.API_PREFIX}/rules", json=_PATTERN_RULE, headers=setup["headers"]
         )
         resp = await client.get(f"{settings.API_PREFIX}/rules", headers=setup["headers"])
-        assert resp.json()["pagination"]["total"] == 1
+        assert resp.json()["pagination"]["total"] == initial_count + 1
 
     async def test_get_rule_by_id(self, client: AsyncClient, setup: dict):
         create_resp = await client.post(

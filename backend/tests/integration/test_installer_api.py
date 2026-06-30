@@ -55,7 +55,7 @@ class TestGenerateToken:
         assert "raw_token" in data
         assert data["raw_token"].startswith("inst_")
         assert len(data["raw_token"]) >= 48
-        assert data["status"] == "pending"
+        # InstallerTokenGenerateResponse does not include status (use /token/{id}/status for that)
         assert data["machine_name"] == "WIN-SRV-01"
 
     async def test_generate_raw_token_not_exposed_after_generation(
@@ -97,13 +97,11 @@ class TestGenerateToken:
         self, client: AsyncClient, setup: dict, mock_redis: Any
     ):
         """After rate limit is exceeded the endpoint returns 429."""
-        # Configure mock to reject the rate limit check
-        mock_redis.incr = __import__("unittest.mock", fromlist=["AsyncMock"]).AsyncMock(
-            return_value=11  # over the 10/hour limit
-        )
-        mock_redis.expire = __import__("unittest.mock", fromlist=["AsyncMock"]).AsyncMock(
-            return_value=True
-        )
+        from unittest.mock import AsyncMock as _AsyncMock
+
+        # _RATE_LIMIT = 50; set incr to exceed it
+        mock_redis.incr = _AsyncMock(return_value=51)
+        mock_redis.expire = _AsyncMock(return_value=True)
 
         resp = await client.post(
             f"{_BASE}/generate-token",

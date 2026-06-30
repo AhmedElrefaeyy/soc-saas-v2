@@ -81,6 +81,12 @@ async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
 # ─── Mock Redis ───────────────────────────────────────────────────────────────
 
 
+async def _empty_async_iter(*args, **kwargs):
+    """Async generator that yields nothing — safe drop-in for Redis scan_iter in tests."""
+    return
+    yield  # pragma: no cover
+
+
 @pytest.fixture
 def mock_redis():
     mock = AsyncMock()
@@ -93,6 +99,9 @@ def mock_redis():
     mock.expire = AsyncMock(return_value=True)
     mock.ttl = AsyncMock(return_value=60)
     mock.publish = AsyncMock(return_value=1)
+    # scan_iter must be a real async generator so callers can `async for key in redis.scan_iter()`
+    # without creating an unawaited coroutine (AsyncMock() would return a bare coroutine).
+    mock.scan_iter = _empty_async_iter
     # Redis Streams
     mock.xadd = AsyncMock(return_value="1234567890-0")
     mock.xreadgroup = AsyncMock(return_value=[])

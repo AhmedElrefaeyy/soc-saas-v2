@@ -404,4 +404,4 @@ async def promote_to_investigation(
         assigned_to=None,
         alert_ids=[str(alert_id)],
     )
-    return APIResponse.ok({"investigation_id": str(investigation.id)})
+    return APIResponse.ok({"investigation_id": str(investigation.investigation_group_id)})
