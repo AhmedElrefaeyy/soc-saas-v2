@@ -481,7 +481,7 @@ class EventSearchService:
     ) -> AsyncGenerator[str | bytes, None]:
         """
         Async generator that yields chunks suitable for StreamingResponse.
-        Fetches in pages of 1000 to avoid loading all rows into memory.
+        Fetches in pages of 500 (EventSearchRequest.limit max) to avoid loading all rows into memory.
         """
         from app.events.schemas import EventSearchRequest
 
@@ -504,7 +504,7 @@ class EventSearchService:
             filter_groups=req.filter_groups,
             sort_by=SortField.EVENT_TIMESTAMP,
             sort_dir=SortDirection.DESC,
-            limit=1000,
+            limit=500,
         )
 
         exported = 0
@@ -531,7 +531,7 @@ class EventSearchService:
 
         while exported < max_rows:
             search_req.cursor = cursor
-            search_req.limit = min(1000, max_rows - exported)
+            search_req.limit = min(500, max_rows - exported)
 
             stmt = build_search_query(tenant_id, search_req).limit(search_req.limit + 1)
             result = await db.execute(stmt)

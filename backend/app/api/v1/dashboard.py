@@ -333,7 +333,7 @@ async def get_dashboard_summary(
         await db.execute(
             text("""
         SELECT
-            COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved','false_positive') AND created_at >= :ps) AS active,
+            COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved','false_positive'))                       AS active,
             COUNT(*) FILTER (WHERE confidence IN ('high','confirmed') AND created_at >= :ps)                   AS correlated,
             COUNT(*) FILTER (WHERE created_at >= :prev_ps AND created_at < :ps AND status NOT IN ('closed','resolved','false_positive')) AS prev_active
         FROM investigations
