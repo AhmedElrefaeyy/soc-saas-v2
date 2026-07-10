@@ -120,9 +120,7 @@ class AnalystWorkspaceService:
 
         assigned_to_name: str | None = None
         if inv.assigned_to is not None:
-            user_row = await db.execute(
-                _select(User.full_name).where(User.id == inv.assigned_to)
-            )
+            user_row = await db.execute(_select(User.full_name).where(User.id == inv.assigned_to))
             assigned_to_name = user_row.scalar_one_or_none()
 
         return InvestigationDetail(

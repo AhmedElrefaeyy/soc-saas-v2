@@ -872,11 +872,13 @@ async def run_investigation_containment(
 
     # Resolve hostname → agent
     res = await db.execute(
-        select(Agent).where(
+        select(Agent)
+        .where(
             Agent.tenant_id == m.tenant_id,
             Agent.hostname == payload.hostname,
             Agent.deleted_at.is_(None),
-        ).limit(1)
+        )
+        .limit(1)
     )
     agent = res.scalar_one_or_none()
     if agent is None:
@@ -888,18 +890,14 @@ async def run_investigation_containment(
     reason = payload.reason or f"Contained via investigation {investigation_id}"
 
     if payload.action == "isolate":
-        agent = await ContainmentService.isolate(
-            db, m.tenant_id, agent.id, m.user_id, reason
-        )
+        agent = await ContainmentService.isolate(db, m.tenant_id, agent.id, m.user_id, reason)
         await db.commit()
         return APIResponse.ok(
             {"status": "isolated", "hostname": payload.hostname, "agent_id": str(agent.id)}
         )
 
     if payload.action == "unisolate":
-        agent = await ContainmentService.release(
-            db, m.tenant_id, agent.id, m.user_id, reason
-        )
+        agent = await ContainmentService.release(db, m.tenant_id, agent.id, m.user_id, reason)
         await db.commit()
         return APIResponse.ok(
             {"status": "released", "hostname": payload.hostname, "agent_id": str(agent.id)}

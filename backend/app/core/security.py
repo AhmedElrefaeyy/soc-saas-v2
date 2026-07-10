@@ -6,10 +6,10 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import jwt
 import structlog
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
-import jwt
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 
 from app.core.config import settings

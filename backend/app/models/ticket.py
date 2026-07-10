@@ -29,9 +29,7 @@ class Ticket(Base):
         DateTime(timezone=True), default=utcnow, server_default="NOW()", nullable=False
     )
 
-    __table_args__ = (
-        Index("idx_ticket_tenant_inv", "tenant_id", "investigation_id"),
-    )
+    __table_args__ = (Index("idx_ticket_tenant_inv", "tenant_id", "investigation_id"),)
 
     def __repr__(self) -> str:
         return f"<Ticket id={self.id} provider={self.provider} key={self.ticket_key}>"

@@ -68,9 +68,7 @@ async def list_audit_events(
     total: int = (await db.scalar(total_q)) or 0
 
     rows_q = (
-        base.order_by(AuditLog.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
+        base.order_by(AuditLog.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
     )
     rows = (await db.execute(rows_q)).all()
 

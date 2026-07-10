@@ -387,7 +387,8 @@ async def _volume_investigation(
     try:
         from datetime import timedelta
 
-        from sqlalchemy import func, select as _select
+        from sqlalchemy import func
+        from sqlalchemy import select as _select
 
         from app.core.database import database_manager
         from app.models.investigation import Investigation, InvestigationStatus

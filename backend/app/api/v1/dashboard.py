@@ -21,6 +21,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
+from redis.asyncio import Redis
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,8 +30,6 @@ from app.core.dependencies import require_permission
 from app.core.redis import get_redis_optional
 from app.rbac.permissions import Permission
 from app.schemas.common import APIResponse
-
-from redis.asyncio import Redis
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 

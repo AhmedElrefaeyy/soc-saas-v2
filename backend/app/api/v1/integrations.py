@@ -112,9 +112,9 @@ async def create_ticket(
 
     # Build a plausible URL (real integration would call the external API here)
     url_map = {
-        "jira":        f"https://your-org.atlassian.net/browse/{ticket_key}",
-        "servicenow":  f"https://your-org.service-now.com/incident.do?sysparm_query=number={ticket_key}",
-        "pagerduty":   f"https://your-org.pagerduty.com/incidents/{ticket_key}",
+        "jira": f"https://your-org.atlassian.net/browse/{ticket_key}",
+        "servicenow": f"https://your-org.service-now.com/incident.do?sysparm_query=number={ticket_key}",
+        "pagerduty": f"https://your-org.pagerduty.com/incidents/{ticket_key}",
     }
     url = url_map.get(payload.provider, f"https://{payload.provider}.example.com/{ticket_key}")
 

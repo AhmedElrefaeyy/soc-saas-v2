@@ -118,11 +118,19 @@ _DEFAULT_RULES: list[dict[str, Any]] = [
                         "groups": [
                             [
                                 {"field": "process.name", "op": "eq", "value": "procdump.exe"},
-                                {"field": "process.command_line", "op": "contains", "value": "lsass"},
+                                {
+                                    "field": "process.command_line",
+                                    "op": "contains",
+                                    "value": "lsass",
+                                },
                             ],
                             [
                                 {"field": "process.name", "op": "eq", "value": "procdump64.exe"},
-                                {"field": "process.command_line", "op": "contains", "value": "lsass"},
+                                {
+                                    "field": "process.command_line",
+                                    "op": "contains",
+                                    "value": "lsass",
+                                },
                             ],
                         ],
                     },

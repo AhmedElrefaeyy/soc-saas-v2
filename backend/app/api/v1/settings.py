@@ -126,10 +126,7 @@ async def get_quota(
     )
     # Estimate storage from event count (avg ~2 KB per event)
     event_count = (
-        await db.scalar(
-            select(func.count(Event.id)).where(Event.tenant_id == tenant_id)
-        )
-        or 0
+        await db.scalar(select(func.count(Event.id)).where(Event.tenant_id == tenant_id)) or 0
     )
     storage_used_gb = round((event_count * 2048) / (1024**3), 2)
 

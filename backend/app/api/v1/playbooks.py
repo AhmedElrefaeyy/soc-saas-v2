@@ -305,6 +305,7 @@ async def update_auto_config(
 
 # ── Playbook CRUD ──────────────────────────────────────────────────────────────
 
+
 @router.get("", response_model=PaginatedResponse[PlaybookResponse])
 async def list_playbooks(
     member: Annotated[object, require_permission(Permission.PLAYBOOKS_READ)],
