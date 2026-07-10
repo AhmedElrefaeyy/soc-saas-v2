@@ -43,6 +43,7 @@ export interface InvestigationDetail {
   status: string
   verdict: string | null
   assigned_to: string | null
+  assigned_to_name?: string | null
   executive_summary: string
   title: string | null
   source: string | null

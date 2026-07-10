@@ -205,8 +205,8 @@ function AssignedAnalystCard({ inv }: { inv: InvestigationDetail }) {
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 11, fontWeight: 700, color: "#fff",
           }}>
-            {(inv as any).assigned_to_name
-              ? (inv as any).assigned_to_name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)
+            {inv.assigned_to_name
+              ? inv.assigned_to_name.split(" ").map((w: string) => w[0]).join("").toUpperCase().slice(0, 2)
               : (inv.assigned_to ?? "?").slice(0, 2).toUpperCase()}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -214,7 +214,7 @@ function AssignedAnalystCard({ inv }: { inv: InvestigationDetail }) {
               Assigned To
             </div>
             <div style={{ fontSize: 12, fontWeight: 600, color: "#F5F7FA", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {(inv as any).assigned_to_name ?? inv.assigned_to}
+              {inv.assigned_to_name ?? inv.assigned_to}
             </div>
           </div>
           <UserCheck size={14} style={{ color: "#3B82F6", flexShrink: 0 }} />
