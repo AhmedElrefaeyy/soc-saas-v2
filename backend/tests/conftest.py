@@ -184,9 +184,7 @@ async def setup_verified_user_and_tenant(
     )
     assert reg.status_code == 201, f"Register failed: {reg.text}"
 
-    await db_session.execute(
-        update(User).where(User.email == email).values(email_verified=True)
-    )
+    await db_session.execute(update(User).where(User.email == email).values(email_verified=True))
     await db_session.flush()
 
     token = reg.json()["data"]["access_token"]
@@ -210,9 +208,7 @@ async def setup_verified_user_and_tenant(
 
 
 @pytest_asyncio.fixture
-async def registered_user(
-    client: AsyncClient, db_session: AsyncSession
-) -> dict[str, Any]:
+async def registered_user(client: AsyncClient, db_session: AsyncSession) -> dict[str, Any]:
     """Creates a verified test user and returns the registration response payload."""
     import uuid
 
@@ -227,9 +223,7 @@ async def registered_user(
         json={"email": email, "password": "StrongTestPass1!X", "full_name": "Test User"},
     )
     assert response.status_code == 201
-    await db_session.execute(
-        update(User).where(User.email == email).values(email_verified=True)
-    )
+    await db_session.execute(update(User).where(User.email == email).values(email_verified=True))
     await db_session.flush()
     return response.json()
 

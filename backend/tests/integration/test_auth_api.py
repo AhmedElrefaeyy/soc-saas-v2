@@ -18,16 +18,12 @@ async def _verify_email(db_session: AsyncSession, email: str) -> None:
 
     from app.models.user import User
 
-    await db_session.execute(
-        update(User).where(User.email == email).values(email_verified=True)
-    )
+    await db_session.execute(update(User).where(User.email == email).values(email_verified=True))
     await db_session.flush()
 
 
 @pytest_asyncio.fixture
-async def user_and_headers(
-    client: AsyncClient, db_session: AsyncSession
-) -> dict[str, Any]:
+async def user_and_headers(client: AsyncClient, db_session: AsyncSession) -> dict[str, Any]:
     """Registers a fresh user, verifies their email, and returns credentials + auth headers.
     Uses a per-test unique email to avoid 409 conflicts when committed rows persist
     across function-scoped tests sharing a session-scoped SQLite engine.
@@ -117,9 +113,7 @@ class TestRegister:
 
 @pytest.mark.asyncio
 class TestLogin:
-    async def test_login_success(
-        self, client: AsyncClient, user_and_headers: dict
-    ) -> None:
+    async def test_login_success(self, client: AsyncClient, user_and_headers: dict) -> None:
         resp = await client.post(
             f"{settings.API_PREFIX}/auth/login",
             json={"email": user_and_headers["email"], "password": "AuthTest1!Secure"},
@@ -129,9 +123,7 @@ class TestLogin:
         assert "access_token" in data
         assert "refresh_token" in data
 
-    async def test_login_wrong_password(
-        self, client: AsyncClient, user_and_headers: dict
-    ) -> None:
+    async def test_login_wrong_password(self, client: AsyncClient, user_and_headers: dict) -> None:
         resp = await client.post(
             f"{settings.API_PREFIX}/auth/login",
             json={"email": user_and_headers["email"], "password": "WrongPassword1!"},
@@ -155,9 +147,7 @@ class TestLogin:
 
 @pytest.mark.asyncio
 class TestCurrentUser:
-    async def test_get_me_authenticated(
-        self, client: AsyncClient, user_and_headers: dict
-    ) -> None:
+    async def test_get_me_authenticated(self, client: AsyncClient, user_and_headers: dict) -> None:
         resp = await client.get(
             f"{settings.API_PREFIX}/auth/me",
             headers=user_and_headers["headers"],
@@ -195,7 +185,9 @@ class TestDemoLogin:
     # These tests require a real PostgreSQL instance and are skipped in the
     # unit/integration test suite that runs on SQLite in-memory.
 
-    @pytest.mark.skip(reason="demo_service uses PostgreSQL-only UUID binding; run against real Postgres")
+    @pytest.mark.skip(
+        reason="demo_service uses PostgreSQL-only UUID binding; run against real Postgres"
+    )
     async def test_demo_login_returns_tokens(self, client: AsyncClient) -> None:
         resp = await client.post(f"{settings.API_PREFIX}/auth/demo")
         assert resp.status_code == 200
@@ -203,7 +195,9 @@ class TestDemoLogin:
         assert "access_token" in data
         assert "refresh_token" in data
 
-    @pytest.mark.skip(reason="demo_service uses PostgreSQL-only UUID binding; run against real Postgres")
+    @pytest.mark.skip(
+        reason="demo_service uses PostgreSQL-only UUID binding; run against real Postgres"
+    )
     async def test_demo_user_can_access_me(self, client: AsyncClient) -> None:
         resp = await client.post(f"{settings.API_PREFIX}/auth/demo")
         assert resp.status_code == 200
@@ -216,7 +210,9 @@ class TestDemoLogin:
         assert me.status_code == 200
         assert me.json()["data"]["email"] is not None
 
-    @pytest.mark.skip(reason="demo_service uses PostgreSQL-only UUID binding; run against real Postgres")
+    @pytest.mark.skip(
+        reason="demo_service uses PostgreSQL-only UUID binding; run against real Postgres"
+    )
     async def test_demo_login_is_idempotent(self, client: AsyncClient) -> None:
         """Multiple demo logins must not fail (demo user is reused)."""
         r1 = await client.post(f"{settings.API_PREFIX}/auth/demo")

@@ -14,9 +14,7 @@ from tests.conftest import setup_verified_user_and_tenant
 
 
 @pytest_asyncio.fixture
-async def tenant_and_member(
-    client: AsyncClient, db_session: AsyncSession
-) -> dict[str, Any]:
+async def tenant_and_member(client: AsyncClient, db_session: AsyncSession) -> dict[str, Any]:
     """Creates a verified user, creates a tenant, returns auth headers + tenant_id."""
     return await setup_verified_user_and_tenant(client, db_session, prefix="agents")
 

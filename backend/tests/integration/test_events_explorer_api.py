@@ -30,9 +30,7 @@ from tests.conftest import setup_verified_user_and_tenant
 
 
 @pytest_asyncio.fixture
-async def auth_member(
-    client: AsyncClient, db_session: AsyncSession
-) -> dict[str, Any]:
+async def auth_member(client: AsyncClient, db_session: AsyncSession) -> dict[str, Any]:
     data = await setup_verified_user_and_tenant(client, db_session, prefix="explorer")
     return {
         "headers": data["headers"],

@@ -18,9 +18,7 @@ async def _verify_email(db_session: AsyncSession, email: str) -> None:
 
     from app.models.user import User
 
-    await db_session.execute(
-        update(User).where(User.email == email).values(email_verified=True)
-    )
+    await db_session.execute(update(User).where(User.email == email).values(email_verified=True))
     await db_session.flush()
 
 
@@ -64,9 +62,7 @@ async def tenant_setup(client: AsyncClient, db_session: AsyncSession) -> dict[st
 
 @pytest.mark.asyncio
 class TestSeverityThresholds:
-    async def test_get_returns_defaults(
-        self, client: AsyncClient, tenant_setup: dict
-    ) -> None:
+    async def test_get_returns_defaults(self, client: AsyncClient, tenant_setup: dict) -> None:
         """Fresh tenant should return the schema defaults."""
         resp = await client.get(
             f"{settings.API_PREFIX}/settings/severity-thresholds",
@@ -81,9 +77,7 @@ class TestSeverityThresholds:
         assert data["escalate_after_minutes"] == 60
         assert data["auto_close_after_days"] == 30
 
-    async def test_put_returns_saved_values(
-        self, client: AsyncClient, tenant_setup: dict
-    ) -> None:
+    async def test_put_returns_saved_values(self, client: AsyncClient, tenant_setup: dict) -> None:
         payload = {
             "critical_min_score": 90,
             "high_min_score": 70,
@@ -188,9 +182,7 @@ class TestSeverityThresholds:
         self, client: AsyncClient, tenant_setup: dict
     ) -> None:
         """Request with JWT but no X-Tenant-ID header must be rejected."""
-        headers_no_tenant = {
-            "Authorization": tenant_setup["headers"]["Authorization"]
-        }
+        headers_no_tenant = {"Authorization": tenant_setup["headers"]["Authorization"]}
         resp = await client.get(
             f"{settings.API_PREFIX}/settings/severity-thresholds",
             headers=headers_no_tenant,
