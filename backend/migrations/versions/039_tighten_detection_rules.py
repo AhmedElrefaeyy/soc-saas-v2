@@ -539,10 +539,10 @@ def upgrade() -> None:
                         description            = :description,
                         rule_type              = :rule_type,
                         severity               = :severity,
-                        conditions             = :conditions::jsonb,
+                        conditions             = CAST(:conditions AS jsonb),
                         suppression_window_secs = :suppression,
-                        mitre_tactics          = :mitre_tactics::jsonb,
-                        mitre_techniques       = :mitre_techniques::jsonb,
+                        mitre_tactics          = CAST(:mitre_tactics AS jsonb),
+                        mitre_techniques       = CAST(:mitre_techniques AS jsonb),
                         updated_at             = NOW()
                     WHERE name             = :old_name
                       AND created_by_id IS NULL
@@ -570,7 +570,7 @@ def upgrade() -> None:
                         description            = :description,
                         rule_type              = :rule_type,
                         severity               = :severity,
-                        conditions             = :conditions::jsonb,
+                        conditions             = CAST(:conditions AS jsonb),
                         suppression_window_secs = :suppression,
                         updated_at             = NOW()
                     WHERE name             = :old_name
