@@ -34,6 +34,7 @@ import json
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 revision = "035"
@@ -240,8 +241,8 @@ def upgrade() -> None:
             params["new_description"] = patch["new_description"]
 
         if patch.get("new_conditions") is not None:
-            set_clauses.append("conditions = CAST(:new_conditions AS jsonb)")
-            params["new_conditions"] = json.dumps(patch["new_conditions"])
+            set_clauses.append("conditions = :new_conditions")
+            params["new_conditions"] = patch["new_conditions"]
 
         if patch.get("new_severity") is not None:
             set_clauses.append("severity = :new_severity")
@@ -255,7 +256,10 @@ def upgrade() -> None:
             continue
 
         sql = f"UPDATE detection_rules SET {', '.join(set_clauses)} WHERE name = :old_name"
-        result = conn.execute(text(sql), params)
+        stmt = text(sql)
+        if "new_conditions" in params:
+            stmt = stmt.bindparams(sa.bindparam("new_conditions", type_=JSONB()))
+        result = conn.execute(stmt, params)
         if result.rowcount == 0:
             print(f"[035] WARNING: rule not found: '{old_name}' — skipping")
         else:

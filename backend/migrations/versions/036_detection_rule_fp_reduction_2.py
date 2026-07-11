@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import json
 from alembic import op
+import sqlalchemy as sa
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 revision = "036"
@@ -54,15 +56,16 @@ def upgrade() -> None:
         },
     ]
 
+    _jsonb = JSONB()
     result = conn.execute(
         text("""
             UPDATE detection_rules
             SET
                 description = :desc,
-                conditions  = CAST(:cond AS jsonb),
+                conditions  = :cond,
                 suppression_window_secs = :supp
             WHERE name = :name
-        """),
+        """).bindparams(sa.bindparam("cond", type_=_jsonb)),
         {
             "name": "Privilege Escalation - SeTcbPrivilege or SeDebugPrivilege Granted",
             "desc": (
@@ -71,7 +74,7 @@ def upgrade() -> None:
                 "Windows built-in system accounts (SYSTEM, DWM, UMFD, Window Manager) that always "
                 "receive these privileges at startup are excluded to prevent constant noise."
             ),
-            "cond": json.dumps(new_conditions_setcb),
+            "cond": new_conditions_setcb,
             "supp": 3600,
         },
     )
@@ -94,10 +97,10 @@ def upgrade() -> None:
             SET
                 rule_type   = 'threshold',
                 description = :desc,
-                conditions  = CAST(:cond AS jsonb),
+                conditions  = :cond,
                 suppression_window_secs = :supp
             WHERE name = :name
-        """),
+        """).bindparams(sa.bindparam("cond", type_=_jsonb)),
         {
             "name": "Explicit Credential Use - Pass-the-Hash Indicator (Event 4648)",
             "desc": (
@@ -107,7 +110,7 @@ def upgrade() -> None:
                 "by a 3-event threshold requiring at least 3 occurrences in 10 minutes — "
                 "a single UAC prompt does not fire, but repeated lateral movement does."
             ),
-            "cond": json.dumps(new_conditions_4648),
+            "cond": new_conditions_4648,
             "supp": 3600,
         },
     )

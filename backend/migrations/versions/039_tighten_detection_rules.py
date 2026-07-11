@@ -73,6 +73,7 @@ import json
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 revision = "039"
@@ -517,6 +518,12 @@ _RULE_UPDATES: list[dict] = [
 def upgrade() -> None:
     conn = op.get_bind()
 
+    # asyncpg translates CAST(:x AS jsonb) → :x::jsonb which PostgreSQL rejects
+    # because the named-param regex stops matching :x when :: follows immediately.
+    # Fix: remove CAST from SQL and use bindparam(type_=JSONB) so SQLAlchemy
+    # handles serialisation before the query reaches the wire.
+    _jsonb = JSONB()
+
     for rule in _RULE_UPDATES:
         old_name = rule["old_name"]
         new_name = rule["new_name"]
@@ -524,7 +531,7 @@ def upgrade() -> None:
         severity = rule["severity"]
         suppression = rule["suppression_window_secs"]
         description = rule["description"]
-        conditions_json = json.dumps(rule["conditions"])
+        conditions_val = rule["conditions"]
 
         # Build optional MITRE overrides
         mitre_tactics = rule.get("mitre_tactics")
@@ -539,15 +546,19 @@ def upgrade() -> None:
                         description            = :description,
                         rule_type              = :rule_type,
                         severity               = :severity,
-                        conditions             = CAST(:conditions AS jsonb),
+                        conditions             = :conditions,
                         suppression_window_secs = :suppression,
-                        mitre_tactics          = CAST(:mitre_tactics AS jsonb),
-                        mitre_techniques       = CAST(:mitre_techniques AS jsonb),
+                        mitre_tactics          = :mitre_tactics,
+                        mitre_techniques       = :mitre_techniques,
                         updated_at             = NOW()
                     WHERE name             = :old_name
                       AND created_by_id IS NULL
                       AND deleted_at IS NULL
                     """
+                ).bindparams(
+                    sa.bindparam("conditions", type_=_jsonb),
+                    sa.bindparam("mitre_tactics", type_=_jsonb),
+                    sa.bindparam("mitre_techniques", type_=_jsonb),
                 ),
                 {
                     "old_name": old_name,
@@ -555,10 +566,10 @@ def upgrade() -> None:
                     "description": description,
                     "rule_type": rule_type,
                     "severity": severity,
-                    "conditions": conditions_json,
+                    "conditions": conditions_val,
                     "suppression": suppression,
-                    "mitre_tactics": json.dumps(mitre_tactics),
-                    "mitre_techniques": json.dumps(mitre_techniques),
+                    "mitre_tactics": mitre_tactics,
+                    "mitre_techniques": mitre_techniques,
                 },
             )
         else:
@@ -570,13 +581,15 @@ def upgrade() -> None:
                         description            = :description,
                         rule_type              = :rule_type,
                         severity               = :severity,
-                        conditions             = CAST(:conditions AS jsonb),
+                        conditions             = :conditions,
                         suppression_window_secs = :suppression,
                         updated_at             = NOW()
                     WHERE name             = :old_name
                       AND created_by_id IS NULL
                       AND deleted_at IS NULL
                     """
+                ).bindparams(
+                    sa.bindparam("conditions", type_=_jsonb),
                 ),
                 {
                     "old_name": old_name,
@@ -584,7 +597,7 @@ def upgrade() -> None:
                     "description": description,
                     "rule_type": rule_type,
                     "severity": severity,
-                    "conditions": conditions_json,
+                    "conditions": conditions_val,
                     "suppression": suppression,
                 },
             )
