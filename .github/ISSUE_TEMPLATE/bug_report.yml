@@ -1,0 +1,96 @@
+name: Bug Report
+description: Report a reproducible bug in NeuraShield
+title: "fix: "
+labels: ["bug", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Please fill in as much detail as possible — incomplete reports are much harder to diagnose.
+
+        > **Security issue?** Do NOT use this form. See [SECURITY.md](../../SECURITY.md) for responsible disclosure.
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the platform is affected?
+      options:
+        - Backend API
+        - Frontend / UI
+        - Event ingestion / connectors
+        - Detection / correlation engine
+        - AI Copilot
+        - Authentication / MFA
+        - UEBA
+        - Playbooks
+        - Reports
+        - Fleet / Agent
+        - Docker / deployment
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear and concise description of the bug.
+      placeholder: "When I do X, Y happens instead of Z."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Exact steps to trigger the bug consistently.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. Send request '...'
+        4. See error
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Fill in the relevant fields.
+      value: |
+        - NeuraShield version / commit:
+        - Deployment: [ ] Docker Compose  [ ] Railway  [ ] Self-hosted
+        - OS:
+        - Browser (if UI issue):
+        - Python version (if backend):
+        - Node version (if frontend):
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error output
+      description: Paste any relevant log lines, stack traces, or API responses. Will be auto-formatted as code.
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+        - label: This is not a security vulnerability (I would use the private disclosure process for that)
+          required: true

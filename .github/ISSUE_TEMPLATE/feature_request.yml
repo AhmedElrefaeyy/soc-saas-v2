@@ -1,0 +1,77 @@
+name: Feature Request
+description: Suggest a new feature or enhancement
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the suggestion. Feature requests that come with a clear problem statement and use case are much easier to evaluate and prioritize.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which area of the platform does this affect?
+      options:
+        - Event ingestion / new connector
+        - Detection / correlation
+        - Alert management
+        - Investigation workflow
+        - AI Copilot
+        - MITRE ATT&CK integration
+        - UEBA / anomaly detection
+        - Playbooks / automation
+        - Threat intelligence
+        - Reporting
+        - Multi-tenancy / MSSP
+        - Authentication / RBAC
+        - Fleet / Agent management
+        - Observability / metrics
+        - API / integrations
+        - Frontend / UX
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem statement
+      description: What are you trying to do that you can't do today?
+      placeholder: "I'm trying to... but I can't because..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What would you like to see added or changed?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or alternative approaches have you considered?
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Any screenshots, mockups, links to similar features elsewhere, or other relevant context.
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this has not been requested before
+          required: true
+        - label: This request fits within the scope of a SOC platform (not a general-purpose feature)
+          required: true
