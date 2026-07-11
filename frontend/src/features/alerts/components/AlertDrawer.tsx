@@ -12,7 +12,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { promoteAlert } from "@/features/investigations/api/investigationsApi";
 import { updateAlert } from "@/services/alertsApi";
 import { settingsApi } from "@/api/settings";
-import { cn } from "@/lib/utils";
+import { cn, extractApiError } from "@/lib/utils";
+import { toastError, toastSuccess } from "@/lib/toast";
 import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
 import { Badge, SeverityBadge } from "@/components/ui/Badge";
@@ -292,9 +293,13 @@ function InvestigationSection({
   const promote = useMutation({
     mutationFn: () => promoteAlert(alertId),
     onSuccess: (res) => {
+      toastSuccess("Investigation created successfully");
       qc.invalidateQueries({ queryKey: ["investigations"] });
       qc.invalidateQueries({ queryKey: alertsKeys.context(tenantId, alertId) });
       navigate(`/investigations/${res.investigation_id}`);
+    },
+    onError: (err) => {
+      toastError(extractApiError(err), "Failed to promote alert");
     },
   });
 
