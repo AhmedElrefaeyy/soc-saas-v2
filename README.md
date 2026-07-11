@@ -2,6 +2,8 @@
 
 <br />
 
+<img src="docs/assets/logo.png" alt="NeuraShield" width="140" />
+
 # NeuraShield
 
 ### AI-Powered, Multi-Tenant Security Operations Center
@@ -110,45 +112,11 @@ Every layer is built for **multi-tenancy**: data, rate limits, API keys, playboo
 
 ## Architecture
 
-```mermaid
-graph TB
-    subgraph Sources["Event Sources"]
-        W["Wazuh"]
-        S["Suricata IDS"]
-        D["MS Defender ATP"]
-        SL["Syslog / Webhook"]
-    end
+<div align="center">
+<img src="docs/assets/architecture.png" alt="NeuraShield Architecture Diagram" width="100%" />
+</div>
 
-    subgraph Backend["NeuraShield Backend (FastAPI + Workers)"]
-        direction TB
-        API["REST API\n+ WebSocket"]
-        WK["Background Workers\n(Redis Streams)"]
-        PIPE["Ingest → Normalize → Correlate → Detect"]
-    end
-
-    subgraph Storage["Storage"]
-        DB[("PostgreSQL 16\n+ pgvector")]
-        RD[("Redis 7\nstreams · cache · locks")]
-    end
-
-    subgraph AI["AI / Intelligence"]
-        LLM["Groq / Gemini LLM\n(AI Copilot + RAG)"]
-        TI["Threat Intel\n(AbuseIPDB · OTX · VirusTotal)"]
-        ATK["MITRE ATT&CK\n(offline corpus)"]
-    end
-
-    FE["React Frontend\n(TypeScript · Tailwind · Vite)"]
-
-    Sources -->|"POST /connectors/{src}/ingest"| API
-    API <--> Storage
-    API --> WK
-    WK --> PIPE
-    PIPE -->|alerts + events| DB
-    FE <-->|"REST + WSS"| API
-    API <--> LLM
-    API <--> TI
-    API --> ATK
-```
+<br />
 
 **Data flow summary:**
 1. Security tools push raw events to `/api/v1/connectors/{source}/ingest` with a per-tenant API key
@@ -179,6 +147,12 @@ graph TB
 | **Threat Intel** | AbuseIPDB, AlienVault OTX, VirusTotal, MaxMind GeoLite2 |
 | **Deployment** | Docker Compose (local / self-hosted), Railway (cloud PaaS) |
 | **CI/CD** | GitHub Actions — lint, type-check, unit tests, integration tests, Docker build, deploy |
+
+<br />
+
+<div align="center">
+<img src="docs/assets/tech-stack.png" alt="NeuraShield Tech Stack" width="480" />
+</div>
 
 ---
 
