@@ -64,6 +64,6 @@ ENV PYTHONPATH=/app
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+    CMD if [ "${WORKER_MODE:-false}" = "true" ]; then exit 0; else curl -f http://localhost:8000/api/v1/health || exit 1; fi
 
 CMD ["./start.sh"]
