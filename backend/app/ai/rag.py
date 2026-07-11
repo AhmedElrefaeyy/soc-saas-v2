@@ -252,7 +252,11 @@ def _validate_rag_url(url: str) -> None:
 # ─── HTTP helper ──────────────────────────────────────────────────────────────
 
 
-async def _http_get(client: httpx.AsyncClient, url: str) -> bytes | None:
+async def _http_get(
+    client: httpx.AsyncClient,
+    url: str,
+    max_bytes: int = _MAX_RAG_RESPONSE_BYTES,
+) -> bytes | None:
     try:
         _validate_rag_url(url)
     except ValueError as exc:
@@ -264,12 +268,12 @@ async def _http_get(client: httpx.AsyncClient, url: str) -> bytes | None:
             resp = await client.get(url)
             if resp.status_code == 200:
                 body = resp.content
-                if len(body) > _MAX_RAG_RESPONSE_BYTES:
+                if len(body) > max_bytes:
                     log.warning(
                         "rag_http_response_too_large",
                         url=url,
                         size=len(body),
-                        limit=_MAX_RAG_RESPONSE_BYTES,
+                        limit=max_bytes,
                     )
                     return None
                 return body
@@ -332,6 +336,7 @@ async def _ingest_mitre(db: AsyncSession, client: httpx.AsyncClient) -> int:
     raw = await _http_get(
         client,
         "https://raw.githubusercontent.com/mitre/cti/master/enterprise-attack/enterprise-attack.json",
+        max_bytes=60 * 1024 * 1024,  # MITRE ATT&CK JSON currently ~48 MB and growing
     )
     if not raw:
         log.warning("rag_ingest_mitre_download_failed")
