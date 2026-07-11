@@ -181,12 +181,18 @@ async def _health_probe_server(stop_event: asyncio.Event) -> None:
 
 async def main() -> None:
     configure_logging(settings.LOG_LEVEL, settings.ENVIRONMENT)
+
+    # Start health probe FIRST — before any DB/Redis init — so Railway's HTTP
+    # healthcheck passes even if downstream connections are slow to come up.
+    stop_event = asyncio.Event()
+    tasks: list[asyncio.Task] = []
+    tasks.append(asyncio.create_task(_health_probe_server(stop_event), name="health-probe"))
+    await asyncio.sleep(0.05)  # yield to let the probe bind before continuing
+
     logger.info("worker_starting", worker_id=_WORKER_ID)
 
     await database_manager.initialize()
     await redis_manager.initialize()
-
-    stop_event = asyncio.Event()
 
     def _shutdown(sig: int) -> None:
         logger.info("worker_shutdown_signal_received", signal=sig)
@@ -203,11 +209,6 @@ async def main() -> None:
 
     tenant_ids_set: set[str] = set(tenant_ids)
     worker_registry: dict[str, bool] = {}
-
-    tasks: list[asyncio.Task] = []
-
-    # Health probe HTTP server (must be first so Railway healthcheck passes quickly)
-    tasks.append(asyncio.create_task(_health_probe_server(stop_event), name="health-probe"))
 
     # One normalization + detection + correlation + investigation worker per tenant
     for tid in tenant_ids:
