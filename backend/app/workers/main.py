@@ -12,7 +12,9 @@ import asyncio
 import os
 import signal
 import socket
+import threading
 import uuid
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import structlog
 
@@ -146,50 +148,42 @@ async def _worker_liveness_loop(stop_event: asyncio.Event) -> None:
             pass
 
 
-async def _health_probe_server(stop_event: asyncio.Event) -> None:
-    """Minimal asyncio TCP server on :8000 so Railway's healthcheck passes.
+class _HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self) -> None:
+        body = b'{"status":"ok"}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
-    The worker has no uvicorn. Without this, Railway's HTTP probe times out
-    and marks every deploy as failed.
+    def log_message(self, *args: object) -> None:
+        pass  # suppress per-request stdout noise
+
+
+def _start_health_server() -> None:
+    """Start a stdlib HTTP health server in a daemon thread.
+
+    Runs outside the asyncio event loop so it stays responsive even when
+    the event loop is busy during startup or heavy processing.
+    Railway health-checks this endpoint to decide if the deploy succeeded.
     """
-    response = (
-        b"HTTP/1.1 200 OK\r\n"
-        b"Content-Type: application/json\r\n"
-        b"Content-Length: 15\r\n"
-        b"Connection: close\r\n"
-        b"\r\n"
-        b'{"status":"ok"}'
-    )
-
-    async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        try:
-            await reader.read(4096)
-            writer.write(response)
-            await writer.drain()
-        except Exception:
-            pass
-        finally:
-            writer.close()
-            await writer.wait_closed()
-
-    server = await asyncio.start_server(_handle, "0.0.0.0", 8000)
-    async with server:
-        await server.start_serving()
-        logger.info("health_probe_listening", port=8000)
-        await stop_event.wait()
+    port = int(os.environ.get("PORT", "8000"))
+    try:
+        server = HTTPServer(("0.0.0.0", port), _HealthHandler)
+        t = threading.Thread(target=server.serve_forever, daemon=True)
+        t.start()
+        print(f"[health] probe listening on 0.0.0.0:{port}", flush=True)
+    except OSError as exc:
+        print(f"[health] FAILED to bind on :{port} — {exc}", flush=True)
 
 
 async def main() -> None:
     configure_logging(settings.LOG_LEVEL, settings.ENVIRONMENT)
+    logger.info("worker_starting", worker_id=_WORKER_ID)
 
-    # Start health probe FIRST — before any DB/Redis init — so Railway's HTTP
-    # healthcheck passes even if downstream connections are slow to come up.
     stop_event = asyncio.Event()
     tasks: list[asyncio.Task] = []
-    tasks.append(asyncio.create_task(_health_probe_server(stop_event), name="health-probe"))
-    await asyncio.sleep(0.05)  # yield to let the probe bind before continuing
-
-    logger.info("worker_starting", worker_id=_WORKER_ID)
 
     await database_manager.initialize()
     await redis_manager.initialize()
@@ -281,4 +275,5 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
+    _start_health_server()
     asyncio.run(main())
