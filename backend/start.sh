@@ -4,19 +4,6 @@
 # Worker mode: skip migrations (web service already ran them), start worker directly.
 if [ "${WORKER_MODE:-false}" = "true" ]; then
     echo "[startup] ── Worker mode ──────────────────────────────────────────────"
-    # Minimal HTTP health probe so Railway healthcheck passes (worker has no uvicorn)
-    python3 -c "
-import http.server, socketserver
-class H(http.server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.end_headers()
-        self.wfile.write(b'{\"status\":\"ok\",\"service\":\"worker\"}')
-    def log_message(self, *a): pass
-with socketserver.TCPServer(('', 8000), H) as s:
-    s.serve_forever()
-" &
     exec python -m app.workers.main
 fi
 

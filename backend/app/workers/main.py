@@ -146,6 +146,39 @@ async def _worker_liveness_loop(stop_event: asyncio.Event) -> None:
             pass
 
 
+async def _health_probe_server(stop_event: asyncio.Event) -> None:
+    """Minimal asyncio TCP server on :8000 so Railway's healthcheck passes.
+
+    The worker has no uvicorn. Without this, Railway's HTTP probe times out
+    and marks every deploy as failed.
+    """
+    response = (
+        b"HTTP/1.1 200 OK\r\n"
+        b"Content-Type: application/json\r\n"
+        b"Content-Length: 15\r\n"
+        b"Connection: close\r\n"
+        b"\r\n"
+        b'{"status":"ok"}'
+    )
+
+    async def _handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            await reader.read(4096)
+            writer.write(response)
+            await writer.drain()
+        except Exception:
+            pass
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    server = await asyncio.start_server(_handle, "0.0.0.0", 8000)
+    async with server:
+        await server.start_serving()
+        logger.info("health_probe_listening", port=8000)
+        await stop_event.wait()
+
+
 async def main() -> None:
     configure_logging(settings.LOG_LEVEL, settings.ENVIRONMENT)
     logger.info("worker_starting", worker_id=_WORKER_ID)
@@ -172,6 +205,9 @@ async def main() -> None:
     worker_registry: dict[str, bool] = {}
 
     tasks: list[asyncio.Task] = []
+
+    # Health probe HTTP server (must be first so Railway healthcheck passes quickly)
+    tasks.append(asyncio.create_task(_health_probe_server(stop_event), name="health-probe"))
 
     # One normalization + detection + correlation + investigation worker per tenant
     for tid in tenant_ids:
