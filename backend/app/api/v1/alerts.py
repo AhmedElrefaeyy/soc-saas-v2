@@ -378,16 +378,12 @@ async def promote_to_investigation(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> APIResponse[dict]:
     """Promote an alert into a new manual investigation."""
-    from fastapi import HTTPException
-
     from app.analyst.cases import CaseService
     from app.models.tenant_member import TenantMember
 
     m: TenantMember = member  # type: ignore[assignment]
 
-    alert = await AlertService.get_alert(db, m.tenant_id, alert_id)
-    if alert is None:
-        raise HTTPException(status_code=404, detail="Alert not found")
+    alert = await AlertService.require_by_id(db, m.tenant_id, alert_id)
 
     investigation = await CaseService.create_manual(
         db=db,
