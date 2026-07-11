@@ -334,33 +334,28 @@ async def get_alert_context(
         result = await db.execute(q)
         related = list(result.scalars().all())
 
-    # Check for linked investigation
+    # Check for linked investigation (search triggering_alert_ids for both auto and promoted)
     investigation = None
-    try:
-        from app.models.investigation import Investigation
+    from app.models.investigation import Investigation
 
-        res = await db.execute(
-            select(Investigation)
-            .where(
-                Investigation.tenant_id == m.tenant_id,
-                Investigation.deleted_at.is_(None),
-            )
-            .filter(
-                Investigation.alert_ids.contains([str(alert_id)])  # type: ignore
-            )
-            .limit(1)
+    res = await db.execute(
+        select(Investigation)
+        .where(
+            Investigation.tenant_id == m.tenant_id,
+            Investigation.deleted_at.is_(None),
+            Investigation.triggering_alert_ids.contains([str(alert_id)]),  # type: ignore
         )
-        inv = res.scalar_one_or_none()
-        if inv:
-            investigation = {
-                "id": str(inv.id),
-                "title": inv.title,
-                "status": inv.status.value if hasattr(inv.status, "value") else str(inv.status),
-                "createdAt": inv.created_at.isoformat() if inv.created_at else None,
-                "alertCount": len(inv.alert_ids) if inv.alert_ids else 1,
-            }
-    except Exception:
-        pass  # Investigation model may not have alert_ids array
+        .limit(1)
+    )
+    inv = res.scalar_one_or_none()
+    if inv:
+        investigation = {
+            "id": inv.investigation_group_id,
+            "title": inv.title or inv.executive_summary,
+            "status": inv.status.value if hasattr(inv.status, "value") else str(inv.status),
+            "createdAt": inv.created_at.isoformat() if inv.created_at else None,
+            "alertCount": len(inv.triggering_alert_ids) if inv.triggering_alert_ids else 1,
+        }
 
     return APIResponse.ok(
         {

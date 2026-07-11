@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Settings2, ShieldAlert } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboardStore";
 import { useDashboardRealtime } from "./hooks/useDashboardRealtime";
@@ -12,10 +12,11 @@ import { GeoThreatMap } from "./widgets/GeoThreatMap";
 import { TopEntitiesWidget } from "./widgets/TopEntitiesWidget";
 import { AlertVolumeHeatmap } from "./widgets/AlertVolumeHeatmap";
 import { MTTRTrendChart } from "./widgets/MTTRTrendChart";
-import { CustomDashboardBuilder } from "./widgets/CustomDashboardBuilder";
+import { CustomDashboardBuilder, loadLayout } from "./widgets/CustomDashboardBuilder";
 import { SecurityPostureScore } from "./widgets/SecurityPostureScore";
 import { WidgetErrorBoundary } from "@/components/ui/WidgetErrorBoundary";
 import { useKPISummary } from "./hooks/useDashboardData";
+import { useAuthStore } from "@/stores/authStore";
 import type { DashboardTimeRange } from "./types/dashboard";
 import { TIME_RANGE_LABELS } from "./types/dashboard";
 
@@ -139,6 +140,14 @@ export function DashboardPage() {
   const timeRange    = useDashboardStore((s) => s.timeRange);
   const setTimeRange = useDashboardStore((s) => s.setTimeRange);
   const [editMode, setEditMode] = useState(false);
+  const userId = useAuthStore((s) => s.user?.id ?? "guest");
+  const [activeWidgets, setActiveWidgets] = useState<string[]>(() => loadLayout(userId));
+
+  const handleLayoutChange = useCallback((layout: string[]) => {
+    setActiveWidgets(layout);
+  }, []);
+
+  const has = (id: string) => activeWidgets.includes(id);
 
   useDashboardRealtime(timeRange);
 
@@ -193,7 +202,7 @@ export function DashboardPage() {
       <CriticalAlertBanner count={criticalCount} />
 
       {/* Custom Dashboard Builder (edit mode only) */}
-      <CustomDashboardBuilder editMode={editMode} />
+      <CustomDashboardBuilder editMode={editMode} onLayoutChange={handleLayoutChange} />
 
       {/* ── Security Posture ── */}
       <div style={{ marginBottom: 20 }}>
@@ -204,71 +213,99 @@ export function DashboardPage() {
       </div>
 
       {/* ── KPI strip ── */}
-      <div style={{ marginBottom: 20 }}>
-        <SectionHeader
-          title="Key Performance Indicators"
-          subtitle="Click any metric to drill in"
-          accent={criticalCount > 0 ? "#EF4444" : "#3B82F6"}
-        />
-        <WidgetErrorBoundary title="KPI Metrics">
-          <KPIMetricsRow timeRange={timeRange} />
-        </WidgetErrorBoundary>
-      </div>
+      {has("kpi") && (
+        <div style={{ marginBottom: 20 }}>
+          <SectionHeader
+            title="Key Performance Indicators"
+            subtitle="Click any metric to drill in"
+            accent={criticalCount > 0 ? "#EF4444" : "#3B82F6"}
+          />
+          <WidgetErrorBoundary title="KPI Metrics">
+            <KPIMetricsRow timeRange={timeRange} />
+          </WidgetErrorBoundary>
+        </div>
+      )}
 
       {/* ── Operations ── */}
-      <div style={{ marginBottom: 20 }}>
-        <SectionHeader title="Operations" subtitle="Real-time alert stream, ingestion pipeline, and detection engine health" accent="#F97316" />
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1.3fr) minmax(0,1fr)", gap: 12 }}>
-          <WidgetErrorBoundary title="Live Alerts Feed">
-            <LiveAlertsFeed timeRange={timeRange} maxHeight={360} />
-          </WidgetErrorBoundary>
-          <WidgetErrorBoundary title="Ingestion Rate">
-            <IngestionRateChart timeRange={timeRange} />
-          </WidgetErrorBoundary>
-          <WidgetErrorBoundary title="Detection Health">
-            <DetectionHealthWidget timeRange={timeRange} />
-          </WidgetErrorBoundary>
+      {(has("live-alerts") || has("ingestion") || has("detection")) && (
+        <div style={{ marginBottom: 20 }}>
+          <SectionHeader title="Operations" subtitle="Real-time alert stream, ingestion pipeline, and detection engine health" accent="#F97316" />
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1.3fr) minmax(0,1fr)", gap: 12 }}>
+            {has("live-alerts") && (
+              <WidgetErrorBoundary title="Live Alerts Feed">
+                <LiveAlertsFeed timeRange={timeRange} maxHeight={360} />
+              </WidgetErrorBoundary>
+            )}
+            {has("ingestion") && (
+              <WidgetErrorBoundary title="Ingestion Rate">
+                <IngestionRateChart timeRange={timeRange} />
+              </WidgetErrorBoundary>
+            )}
+            {has("detection") && (
+              <WidgetErrorBoundary title="Detection Health">
+                <DetectionHealthWidget timeRange={timeRange} />
+              </WidgetErrorBoundary>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Threat Intelligence ── */}
-      <div style={{ marginBottom: 20 }}>
-        <SectionHeader title="Threat Intelligence" subtitle="ATT&CK coverage and correlation activity" accent="#8B5CF6" />
-        <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 12 }}>
-          <WidgetErrorBoundary title="MITRE ATT&CK">
-            <MitreHeatmap timeRange={timeRange} />
-          </WidgetErrorBoundary>
-          <WidgetErrorBoundary title="Correlation Activity">
-            <CorrelationWidget timeRange={timeRange} />
-          </WidgetErrorBoundary>
+      {(has("mitre") || has("correlation")) && (
+        <div style={{ marginBottom: 20 }}>
+          <SectionHeader title="Threat Intelligence" subtitle="ATT&CK coverage and correlation activity" accent="#8B5CF6" />
+          <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 12 }}>
+            {has("mitre") && (
+              <WidgetErrorBoundary title="MITRE ATT&CK">
+                <MitreHeatmap timeRange={timeRange} />
+              </WidgetErrorBoundary>
+            )}
+            {has("correlation") && (
+              <WidgetErrorBoundary title="Correlation Activity">
+                <CorrelationWidget timeRange={timeRange} />
+              </WidgetErrorBoundary>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Geospatial Intelligence ── */}
-      <div style={{ marginBottom: 20 }}>
-        <SectionHeader title="Geospatial Intelligence" subtitle="Threat origin mapping and top entity monitoring" accent="#10B981" />
-        <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 12 }}>
-          <WidgetErrorBoundary title="Geo Threat Map">
-            <GeoThreatMap timeRange={timeRange} />
-          </WidgetErrorBoundary>
-          <WidgetErrorBoundary title="Top Entities">
-            <TopEntitiesWidget timeRange={timeRange} />
-          </WidgetErrorBoundary>
+      {(has("geo-map") || has("top-entities")) && (
+        <div style={{ marginBottom: 20 }}>
+          <SectionHeader title="Geospatial Intelligence" subtitle="Threat origin mapping and top entity monitoring" accent="#10B981" />
+          <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 12 }}>
+            {has("geo-map") && (
+              <WidgetErrorBoundary title="Geo Threat Map">
+                <GeoThreatMap timeRange={timeRange} />
+              </WidgetErrorBoundary>
+            )}
+            {has("top-entities") && (
+              <WidgetErrorBoundary title="Top Entities">
+                <TopEntitiesWidget timeRange={timeRange} />
+              </WidgetErrorBoundary>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Performance Trends ── */}
-      <div>
-        <SectionHeader title="Performance Trends" subtitle="Alert volume patterns and mean time to resolution" accent="#F59E0B" />
-        <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 12 }}>
-          <WidgetErrorBoundary title="Alert Volume Heatmap">
-            <AlertVolumeHeatmap timeRange={timeRange} />
-          </WidgetErrorBoundary>
-          <WidgetErrorBoundary title="MTTR Trend">
-            <MTTRTrendChart timeRange={timeRange} />
-          </WidgetErrorBoundary>
+      {(has("heatmap") || has("mttr")) && (
+        <div>
+          <SectionHeader title="Performance Trends" subtitle="Alert volume patterns and mean time to resolution" accent="#F59E0B" />
+          <div style={{ display: "grid", gridTemplateColumns: "3fr 2fr", gap: 12 }}>
+            {has("heatmap") && (
+              <WidgetErrorBoundary title="Alert Volume Heatmap">
+                <AlertVolumeHeatmap timeRange={timeRange} />
+              </WidgetErrorBoundary>
+            )}
+            {has("mttr") && (
+              <WidgetErrorBoundary title="MTTR Trend">
+                <MTTRTrendChart timeRange={timeRange} />
+              </WidgetErrorBoundary>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

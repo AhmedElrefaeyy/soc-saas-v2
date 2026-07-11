@@ -286,12 +286,14 @@ function InvestigationSection({
 }) {
   const navigate  = useNavigate();
   const qc        = useQueryClient();
+  const tenantId  = useTenantStore((s) => s.activeTenant?.id) ?? "";
   const { data: ctx, isLoading } = useAlertContext(alertId);
 
   const promote = useMutation({
     mutationFn: () => promoteAlert(alertId),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["investigations"] });
+      qc.invalidateQueries({ queryKey: alertsKeys.context(tenantId, alertId) });
       navigate(`/investigations/${res.investigation_id}`);
     },
   });

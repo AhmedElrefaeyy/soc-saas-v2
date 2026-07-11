@@ -231,7 +231,7 @@ class CaseService:
             assigned_to=UUID(assigned_to) if assigned_to else None,
             attack_progression=[],
             recommended_actions=[],
-            # store linked alert IDs in context JSON for reference
+            triggering_alert_ids=alert_ids if alert_ids else [],
             context_json={"alert_ids": alert_ids, "severity": severity}
             if alert_ids
             else {"severity": severity},
