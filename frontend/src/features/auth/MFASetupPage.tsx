@@ -34,6 +34,7 @@ export function MFASetupPage() {
   const [error, setError]             = useState<string | null>(null);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [copied, setCopied]           = useState(false);
+  const [copiedUri, setCopiedUri]     = useState(false);
 
   useEffect(() => {
     authApi
@@ -152,11 +153,11 @@ export function MFASetupPage() {
                     </div>
                   </div>
 
-                  <p className="text-xs text-center mb-4" style={{ color: "#8B95A7" }}>
+                  <p className="text-xs text-center mb-2" style={{ color: "#8B95A7" }}>
                     Can't scan? Copy the URI manually into your app:
                   </p>
                   <div
-                    className="rounded-lg px-3 py-2 mb-6 text-xs font-mono break-all"
+                    className="rounded-lg px-3 py-2 mb-2 text-xs font-mono break-all"
                     style={{
                       background: "rgba(255,255,255,0.04)",
                       border: "1px solid rgba(255,255,255,0.08)",
@@ -165,6 +166,26 @@ export function MFASetupPage() {
                   >
                     {setup.provisioning_uri}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(setup.provisioning_uri).then(() => {
+                        setCopiedUri(true);
+                        setTimeout(() => setCopiedUri(false), 2000);
+                      });
+                    }}
+                    className="flex items-center justify-center gap-2 w-full mb-6 py-2 rounded-lg text-xs font-medium transition-all"
+                    style={{
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      color: copiedUri ? "#22C55E" : "#8B95A7",
+                    }}
+                  >
+                    {copiedUri
+                      ? <><CheckCircle2 className="w-3.5 h-3.5" /> Copied!</>
+                      : <><Copy className="w-3.5 h-3.5" /> Copy URI</>
+                    }
+                  </button>
 
                   <form onSubmit={handleVerify} className="space-y-4">
                     <div>
