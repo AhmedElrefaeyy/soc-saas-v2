@@ -37,9 +37,21 @@ export function MFASetupPage() {
   const [copiedUri, setCopiedUri]     = useState(false);
 
   useEffect(() => {
+    // Reuse cached setup from sessionStorage to avoid hitting rate limit on refresh
+    const cached = sessionStorage.getItem("mfa_setup_pending");
+    if (cached) {
+      try {
+        setSetup(JSON.parse(cached));
+        setIsLoading(false);
+        return;
+      } catch { /* ignore malformed cache */ }
+    }
     authApi
       .mfaSetup()
-      .then(setSetup)
+      .then((res) => {
+        sessionStorage.setItem("mfa_setup_pending", JSON.stringify(res));
+        setSetup(res);
+      })
       .catch((err) => setError(extractApiError(err)))
       .finally(() => setIsLoading(false));
   }, []);
@@ -61,6 +73,7 @@ export function MFASetupPage() {
     setIsVerifying(true);
     try {
       const result = await authApi.mfaVerify(setup.encrypted_secret, code.trim());
+      sessionStorage.removeItem("mfa_setup_pending");
       setBackupCodes(result.backup_codes);
       setStep("backup");
     } catch (err) {

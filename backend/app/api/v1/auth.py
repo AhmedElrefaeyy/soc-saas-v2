@@ -470,7 +470,7 @@ async def mfa_setup(
     import hashlib as _hashlib
 
     _uid_hash = _hashlib.sha256(str(current_user.id).encode()).hexdigest()[:24]
-    await _check_rate_limit(redis, f"auth_mfa_setup:{_uid_hash}", limit=10, window=3600)
+    await _check_rate_limit(redis, f"auth_mfa_setup:{_uid_hash}", limit=30, window=3600)
     from app.services.mfa_service import MFAService
 
     result = MFAService.generate_totp_setup(current_user)
