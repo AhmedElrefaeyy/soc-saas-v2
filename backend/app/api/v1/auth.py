@@ -508,6 +508,13 @@ async def mfa_verify(
         raise ValidationError(str(exc)) from exc
     await db.flush([current_user])
     await db.commit()
+
+    import asyncio as _asyncio
+    from app.services.email_service import send_mfa_enabled_email
+    _asyncio.ensure_future(
+        send_mfa_enabled_email(current_user.email, current_user.full_name or current_user.email)
+    )
+
     return APIResponse.ok(MFABackupCodesResponse(backup_codes=raw_codes))
 
 

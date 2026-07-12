@@ -455,6 +455,59 @@ Your password will not be changed.
     return await _send_email(to_email, subject, body_text, body_html)
 
 
+async def send_mfa_enabled_email(
+    to_email: str,
+    full_name: str,
+) -> bool:
+    subject = "Two-factor authentication enabled on your NEURASHIELD account"
+
+    body_text = f"""Hi {full_name},
+
+Two-factor authentication (TOTP) has been successfully enabled on your NEURASHIELD account.
+
+Your account is now protected with an extra layer of security.
+
+If you did not make this change, contact your administrator immediately and disable MFA from your account settings.
+
+-- NEURASHIELD SOC Platform
+"""
+
+    content_html = f"""
+<p style="color:#B8C0CC;font-size:14px;line-height:1.7;margin:0 0 20px;">
+  Hi <strong style="color:#F5F7FA;">{full_name}</strong>,<br>
+  Two-factor authentication has been successfully enabled on your account.
+</p>
+<div style="background:rgba(34,197,94,0.08);
+            border:1px solid rgba(34,197,94,0.2);
+            border-radius:8px;padding:16px;margin-bottom:20px;">
+  <div style="display:flex;align-items:center;gap:10px;">
+    <div style="width:32px;height:32px;border-radius:50%;
+                background:rgba(34,197,94,0.15);display:flex;
+                align-items:center;justify-content:center;flex-shrink:0;">
+      <span style="color:#22C55E;font-size:16px;">&#10003;</span>
+    </div>
+    <div>
+      <div style="font-size:13px;font-weight:600;color:#22C55E;">
+        MFA Activated
+      </div>
+      <div style="font-size:12px;color:#5C6373;margin-top:2px;">
+        TOTP authenticator app linked to your account
+      </div>
+    </div>
+  </div>
+</div>
+<p style="color:#5C6373;font-size:12px;line-height:1.6;margin:0;">
+  If you did not make this change, contact your administrator immediately
+  and disable MFA from your account settings.
+</p>
+"""
+    body_html = _html_wrapper(
+        title="Two-factor authentication enabled",
+        content=content_html,
+    )
+    return await _send_email(to_email, subject, body_text, body_html)
+
+
 async def send_investigation_email(
     to_email: str,
     recipient_name: str,
