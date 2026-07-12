@@ -90,6 +90,15 @@ export function extractApiError(error: unknown): string {
       const data = response["data"] as Record<string, unknown> | null | undefined;
       const apiErr = data?.["error"] as Record<string, unknown> | null | undefined;
 
+      // For validation errors, surface the first field-level detail instead of the generic wrapper.
+      if (apiErr?.["code"] === "VALIDATION_ERROR") {
+        const details = apiErr?.["details"] as Array<Record<string, unknown>> | null | undefined;
+        const firstMsg = details?.[0]?.["message"];
+        if (typeof firstMsg === "string" && firstMsg.length > 0) {
+          return firstMsg.replace(/^value error,\s*/i, "");
+        }
+      }
+
       // Prefer the backend's human-readable message.
       const msg = apiErr?.["message"];
       if (typeof msg === "string" && msg.length > 0) return msg;

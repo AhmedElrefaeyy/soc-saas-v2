@@ -165,11 +165,19 @@ export function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [registered, setRegistered] = useState(false);
 
+  function shannonEntropy(s: string): number {
+    const freq: Record<string, number> = {};
+    for (const ch of s) freq[ch] = (freq[ch] ?? 0) + 1;
+    const n = s.length;
+    return -Object.values(freq).reduce((sum, c) => sum + (c / n) * Math.log2(c / n), 0);
+  }
+
   const rules = {
     length:    password.length >= 8,
     uppercase: /[A-Z]/.test(password),
     lowercase: /[a-z]/.test(password),
     digit:     /\d/.test(password),
+    entropy:   password.length === 0 || shannonEntropy(password) >= 3.0,
   };
   const allRulesMet = Object.values(rules).every(Boolean);
 
@@ -322,6 +330,7 @@ export function RegisterPage() {
                       <PasswordRule met={rules.uppercase} label="Uppercase letter" />
                       <PasswordRule met={rules.lowercase} label="Lowercase letter" />
                       <PasswordRule met={rules.digit}     label="Number" />
+                      <PasswordRule met={rules.entropy}   label="Not predictable" />
                     </div>
                   )}
                 </div>
