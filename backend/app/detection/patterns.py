@@ -83,19 +83,36 @@ def _safe_regex_match(pattern: str, text: str) -> bool:
 # ─── Field access ─────────────────────────────────────────────────────────────
 
 
+_FIELD_ALIASES: dict[str, str] = {
+    # UI used these short names — map to actual NormalizedEvent paths
+    "source.ip":   "network.src_ip",
+    "source_ip":   "network.src_ip",
+    "dest.ip":     "network.dst_ip",
+    "dest_ip":     "network.dst_ip",
+    "src_ip":      "network.src_ip",
+    "dst_ip":      "network.dst_ip",
+    "src_port":    "network.src_port",
+    "dst_port":    "network.dst_port",
+    "protocol":    "network.protocol",
+    "username":    "user.name",
+}
+
+
 def _get_field(event: NormalizedEvent, path: str) -> Any:
     """
     Dot-notation field access with unlimited nesting depth.
+    Short aliases (source.ip, dest.ip, username, etc.) are resolved first.
 
     Examples:
       "hostname"                → event.hostname
+      "source.ip"               → event.network.src_ip  (alias)
+      "network.src_ip"          → event.network.src_ip
       "process.name"            → event.process.name
       "raw.windows_event_id"    → event.raw["windows_event_id"]
-      "network.dst_port"        → event.network.dst_port
-      "registry.key"            → event.registry["key"]
     """
     if not path:
         return None
+    path = _FIELD_ALIASES.get(path, path)
 
     parts = path.split(".")
     obj: Any = event

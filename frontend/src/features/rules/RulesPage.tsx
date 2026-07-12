@@ -18,12 +18,14 @@ const SEV_COLORS: Record<RuleSeverity, { bg: string; color: string }> = {
 }
 
 const PATTERN_FIELDS = [
-  'category', 'severity', 'hostname', 'username',
-  'process.name', 'source.ip', 'dest.ip', 'event_id', 'tags',
+  'category', 'severity', 'hostname', 'user.name',
+  'process.name', 'network.src_ip', 'network.dst_ip',
+  'network.protocol', 'network.src_port', 'network.dst_port',
+  'event_id', 'tags',
 ]
 
 const THRESHOLD_FIELDS = [
-  'source.ip', 'username', 'process.name', 'hostname', 'dest.ip', 'category',
+  'network.src_ip', 'user.name', 'process.name', 'hostname', 'network.dst_ip', 'category',
 ]
 
 const MITRE_TACTICS = [
@@ -43,7 +45,7 @@ const DEFAULT_FORM = {
   ruleType:       'pattern' as RuleType,
   severity:       'medium' as RuleSeverity,
   patternConds:   [{ field: 'category', op: 'eq', value: '' }] as PatternCond[],
-  tField:         'source.ip',
+  tField:         'network.src_ip',
   tGroupBy:       'hostname',
   tThreshold:     5,
   tWindowSecs:    300,
@@ -70,7 +72,7 @@ function formFromRule(rule: DetectionRule): FormState {
     ruleType:       rule.rule_type,
     severity:       rule.severity,
     patternConds,
-    tField:         tc?.field         ?? 'source.ip',
+    tField:         tc?.field         ?? 'network.src_ip',
     tGroupBy:       tc?.group_by      ?? 'hostname',
     tThreshold:     tc?.threshold     ?? 5,
     tWindowSecs:    tc?.window_secs   ?? 300,
