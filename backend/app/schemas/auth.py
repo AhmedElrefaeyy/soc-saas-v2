@@ -106,6 +106,7 @@ class TokenPair(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int  # access token TTL in seconds
+    mfa_setup_required: bool = False  # True when user has no MFA configured yet
 
 
 class TokenRefreshResponse(BaseModel):

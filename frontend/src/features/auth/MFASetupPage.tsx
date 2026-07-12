@@ -2,21 +2,32 @@ import { useState, useEffect, FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ShieldCheck, AlertCircle, Copy, CheckCircle2 } from "lucide-react";
+import { useAuthStore } from "@/stores/authStore";
+import { useTenantStore } from "@/stores/tenantStore";
 import { authApi } from "@/api/auth";
 import { isApiError } from "@/api/client";
 import { extractApiError } from "@/lib/utils";
+import { fetchMyTenants } from "@/api/tenants";
 import type { MFASetupResponse } from "@/api/auth";
+import type { MemberRole } from "@/types/tenant";
 
 type Step = "setup" | "backup";
 
 export function MFASetupPage() {
   const navigate = useNavigate();
 
+  const mfaSetupRequired   = useAuthStore((s) => s.mfaSetupRequired);
+  const setMfaSetupRequired = useAuthStore((s) => s.setMfaSetupRequired);
+  const setUser             = useAuthStore((s) => s.setUser);
+  const setAuthTenant       = useAuthStore((s) => s.setActiveTenant);
+  const setStoreTenant      = useTenantStore((s) => s.setActiveTenant);
+
   const [step, setStep]               = useState<Step>("setup");
   const [setup, setSetup]             = useState<MFASetupResponse | null>(null);
   const [code, setCode]               = useState("");
   const [isLoading, setIsLoading]     = useState(true);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isDoneLoading, setIsDoneLoading] = useState(false);
   const [error, setError]             = useState<string | null>(null);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [copied, setCopied]           = useState(false);
@@ -54,6 +65,25 @@ export function MFASetupPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
+  }
+
+  async function handleDone() {
+    if (mfaSetupRequired) {
+      setIsDoneLoading(true);
+      try {
+        const [me, tenants] = await Promise.all([authApi.me(), fetchMyTenants()]);
+        setUser(me);
+        if (tenants.length > 0) {
+          const tenant = tenants[0];
+          setStoreTenant(tenant, "owner" as MemberRole);
+          setAuthTenant(tenant.id);
+        }
+      } catch { /* navigate anyway — app will recover */ }
+      setMfaSetupRequired(false);
+      navigate("/dashboard", { replace: true });
+    } else {
+      navigate("/settings");
+    }
   }
 
   return (
@@ -187,14 +217,16 @@ export function MFASetupPage() {
                       {isVerifying ? "Activating…" : "Activate MFA"}
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => navigate(-1)}
-                      className="w-full text-sm text-center"
-                      style={{ color: "#8B95A7" }}
-                    >
-                      Cancel
-                    </button>
+                    {!mfaSetupRequired && (
+                      <button
+                        type="button"
+                        onClick={() => navigate(-1)}
+                        className="w-full text-sm text-center"
+                        style={{ color: "#8B95A7" }}
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </form>
                 </>
               ) : (
@@ -253,14 +285,16 @@ export function MFASetupPage() {
 
                 <button
                   type="button"
-                  onClick={() => navigate("/settings")}
+                  onClick={handleDone}
+                  disabled={isDoneLoading}
                   className="w-full py-2.5 rounded-xl text-sm font-semibold transition-all"
                   style={{
-                    background: "rgba(59,130,246,0.8)",
+                    background: isDoneLoading ? "rgba(59,130,246,0.4)" : "rgba(59,130,246,0.8)",
                     color: "#fff",
+                    cursor: isDoneLoading ? "not-allowed" : "pointer",
                   }}
                 >
-                  Done
+                  {isDoneLoading ? "Loading…" : "Done"}
                 </button>
               </div>
             </>

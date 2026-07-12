@@ -14,6 +14,7 @@ export interface TokenPair {
   refresh_token: string;
   token_type: string;
   expires_in: number;
+  mfa_setup_required?: boolean;
 }
 
 export interface RegisterRequest {

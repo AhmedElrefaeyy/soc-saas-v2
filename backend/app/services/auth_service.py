@@ -181,6 +181,10 @@ class AuthService:
 
         token_pair = await AuthService._issue_token_pair(db, user)
 
+        # MFA is mandatory — flag accounts that have not yet enrolled.
+        if not user.totp_enabled:
+            token_pair = token_pair.model_copy(update={"mfa_setup_required": True})
+
         await AuditService.log(
             db,
             action="user.login",

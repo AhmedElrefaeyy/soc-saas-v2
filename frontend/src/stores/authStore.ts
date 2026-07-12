@@ -15,6 +15,9 @@ interface AuthState {
   activeTenantId: string | null;
   // mfaPending is in-memory only (NOT in partialize) — cleared on page reload
   mfaPending: MFAPending | null;
+  // True while the user is authenticated but has not yet enrolled in MFA.
+  // In-memory only — cleared on page reload (user must re-authenticate).
+  mfaSetupRequired: boolean;
 
   // Actions
   setAuth: (user: User, accessToken: string) => void;
@@ -23,6 +26,7 @@ interface AuthState {
   setUser: (user: User) => void;
   clearAuth: () => void;
   setMFAPending: (pending: MFAPending | null) => void;
+  setMfaSetupRequired: (required: boolean) => void;
 
   // Computed
   isAuthenticated: () => boolean;
@@ -35,6 +39,7 @@ export const useAuthStore = create<AuthState>()(
       accessToken: null,
       activeTenantId: null,
       mfaPending: null,
+      mfaSetupRequired: false,
 
       // refreshToken is intentionally absent from state.
       // It lives exclusively in an httpOnly SameSite=strict cookie set by the server.
@@ -58,10 +63,14 @@ export const useAuthStore = create<AuthState>()(
           accessToken: null,
           activeTenantId: null,
           mfaPending: null,
+          mfaSetupRequired: false,
         }),
 
       setMFAPending: (pending) =>
         set({ mfaPending: pending }),
+
+      setMfaSetupRequired: (required) =>
+        set({ mfaSetupRequired: required }),
 
       isAuthenticated: () => {
         const { accessToken } = get();

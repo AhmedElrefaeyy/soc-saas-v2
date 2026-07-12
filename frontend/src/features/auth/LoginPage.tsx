@@ -16,11 +16,12 @@ export function LoginPage() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
 
-  const setAuth        = useAuthStore((s) => s.setAuth);
-  const setUser        = useAuthStore((s) => s.setUser);
-  const setAuthTenant  = useAuthStore((s) => s.setActiveTenant);
-  const setStoreTenant = useTenantStore((s) => s.setActiveTenant);
-  const setMFAPending  = useAuthStore((s) => s.setMFAPending);
+  const setAuth             = useAuthStore((s) => s.setAuth);
+  const setUser             = useAuthStore((s) => s.setUser);
+  const setAuthTenant       = useAuthStore((s) => s.setActiveTenant);
+  const setStoreTenant      = useTenantStore((s) => s.setActiveTenant);
+  const setMFAPending       = useAuthStore((s) => s.setMFAPending);
+  const setMfaSetupRequired = useAuthStore((s) => s.setMfaSetupRequired);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -53,6 +54,13 @@ export function LoginPage() {
         { id: "", email, full_name: "", is_active: true, created_at: "" },
         tokens.access_token,
       );
+
+      // MFA not enrolled yet — must set up before accessing the app
+      if (tokens.mfa_setup_required) {
+        setMfaSetupRequired(true);
+        navigate("/mfa-setup", { replace: true });
+        return;
+      }
 
       try {
         const [me, tenants] = await Promise.all([authApi.me(), fetchMyTenants()]);
