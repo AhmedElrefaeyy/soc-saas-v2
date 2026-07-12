@@ -1576,13 +1576,15 @@ const NOTIF_ITEMS: Array<{
 
 function NotificationsTab() {
   const user = useAuthStore(s => s.user)
-  const [prefs,   setPrefs]   = useState<NotificationPreferences | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [saving,  setSaving]  = useState(false)
-  const [saved,   setSaved]   = useState(false)
-  const [error,   setError]   = useState<string | null>(null)
+  const [prefs,        setPrefs]        = useState<NotificationPreferences | null>(null)
+  const [emailCfg,     setEmailCfg]     = useState<{ is_configured: boolean } | null>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [saving,       setSaving]       = useState(false)
+  const [saved,        setSaved]        = useState(false)
+  const [error,        setError]        = useState<string | null>(null)
 
   useEffect(() => {
+    settingsApi.getEmailConfig().then(c => setEmailCfg(c)).catch(() => {})
     settingsApi.getNotificationPrefs()
       .then(p => setPrefs(p))
       .catch(() => setPrefs({
@@ -1653,21 +1655,22 @@ function NotificationsTab() {
         </div>
       )}
 
-      {/* SMTP info bar */}
+      {/* Email delivery status bar */}
       <div style={{
         padding: '10px 14px', marginBottom: 20, borderRadius: 8,
-        background: 'rgba(245,158,11,0.06)',
-        border: '1px solid rgba(245,158,11,0.15)',
+        background: emailCfg?.is_configured ? 'rgba(34,197,94,0.06)' : 'rgba(245,158,11,0.06)',
+        border: `1px solid ${emailCfg?.is_configured ? 'rgba(34,197,94,0.2)' : 'rgba(245,158,11,0.15)'}`,
         display: 'flex', alignItems: 'flex-start', gap: 8,
       }}>
-        <Mail size={13} style={{ color: '#F59E0B', marginTop: 2, flexShrink: 0 }} />
-        <div>
-          <div style={{ fontSize: 12, color: '#FCD34D', fontWeight: 600, marginBottom: 2 }}>
-            Emails sent to: {user?.email ?? '—'}
+        <Mail size={13} style={{ color: emailCfg?.is_configured ? '#22C55E' : '#F59E0B', marginTop: 2, flexShrink: 0 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 12, color: emailCfg?.is_configured ? '#22C55E' : '#FCD34D', fontWeight: 600, marginBottom: 2 }}>
+            {emailCfg?.is_configured ? `Emails sent to: ${user?.email ?? '—'}` : 'Email delivery not configured'}
           </div>
           <div style={{ fontSize: 11, color: '#8B95A7' }}>
-            Configure SMTP_HOST, SMTP_USER, and SMTP_PASSWORD in Railway Variables
-            to enable email delivery
+            {emailCfg?.is_configured
+              ? 'Your SMTP server is configured and ready to deliver notifications.'
+              : <>Go to <strong style={{ color: '#93C5FD' }}>Administration → Email Delivery</strong> to set up your SMTP server.</>}
           </div>
         </div>
       </div>
@@ -1865,6 +1868,216 @@ function AutomationTab() {
   )
 }
 
+// ─── Email Configuration Tab ──────────────────────────────────────────────────
+
+import type { SmtpConfig, SmtpConfigPayload } from '@/api/settings'
+
+function EmailTab() {
+  const user = useAuthStore(s => s.user)
+  const [config, setConfig]         = useState<SmtpConfig | null>(null)
+  const [loading, setLoading]       = useState(true)
+  const [saving, setSaving]         = useState(false)
+  const [testing, setTesting]       = useState(false)
+  const [showPass, setShowPass]     = useState(false)
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+
+  const [host,      setHost]      = useState('')
+  const [port,      setPort]      = useState('465')
+  const [username,  setUsername]  = useState('')
+  const [password,  setPassword]  = useState('')
+  const [fromEmail, setFromEmail] = useState('')
+  const [useTls,    setUseTls]    = useState(true)
+
+  useEffect(() => {
+    settingsApi.getEmailConfig()
+      .then(cfg => {
+        setConfig(cfg)
+        setHost(cfg.host)
+        setPort(String(cfg.port))
+        setUsername(cfg.username)
+        setFromEmail(cfg.from_email)
+        setUseTls(cfg.use_tls)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function handleSave() {
+    setSaving(true)
+    setTestResult(null)
+    try {
+      const payload: SmtpConfigPayload = {
+        host, port: Number(port), username, password,
+        from_email: fromEmail || username, use_tls: useTls,
+      }
+      const saved = await settingsApi.saveEmailConfig(payload)
+      setConfig(saved)
+      setPassword('')
+      toastSuccess('Email configuration saved')
+    } catch (err) {
+      toastError(extractApiError(err), 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleTest() {
+    if (!user?.email) return
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const result = await settingsApi.testEmailConfig(user.email)
+      setTestResult(result)
+    } catch (err) {
+      setTestResult({ success: false, message: extractApiError(err) })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const inp: React.CSSProperties = {
+    width: '100%', padding: '8px 12px', borderRadius: 8, fontSize: 13,
+    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+    color: '#F5F7FA', outline: 'none',
+  }
+  const lbl: React.CSSProperties = {
+    fontSize: 11, fontWeight: 600, color: '#8B95A7',
+    textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 6, display: 'block',
+  }
+
+  if (loading) return <div style={{ padding: 32 }}><div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+
+  return (
+    <div style={{ maxWidth: 580 }}>
+      <SectionHeader
+        title="Email Delivery"
+        description="Configure your SMTP server to send alerts, MFA, and notification emails"
+      />
+
+      {/* Status badge */}
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: 6,
+        padding: '5px 12px', borderRadius: 20, marginBottom: 24,
+        background: config?.is_configured ? 'rgba(34,197,94,0.08)' : 'rgba(245,158,11,0.08)',
+        border: `1px solid ${config?.is_configured ? 'rgba(34,197,94,0.25)' : 'rgba(245,158,11,0.25)'}`,
+      }}>
+        <div style={{
+          width: 6, height: 6, borderRadius: '50%',
+          background: config?.is_configured ? '#22C55E' : '#F59E0B',
+        }} />
+        <span style={{ fontSize: 11, fontWeight: 600, color: config?.is_configured ? '#22C55E' : '#F59E0B' }}>
+          {config?.is_configured ? 'SMTP Configured' : 'Not Configured'}
+        </span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px', gap: 12, marginBottom: 12 }}>
+        <div>
+          <label style={lbl}>SMTP Host</label>
+          <input style={inp} value={host} onChange={e => setHost(e.target.value)} placeholder="smtp.gmail.com" />
+        </div>
+        <div>
+          <label style={lbl}>Port</label>
+          <input style={inp} type="number" value={port} onChange={e => setPort(e.target.value)} placeholder="465" />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>Username / Email</label>
+        <input style={inp} value={username} onChange={e => setUsername(e.target.value)} placeholder="you@gmail.com" autoComplete="off" />
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>
+          Password / App Password
+          {config?.password_set && <span style={{ color: '#22C55E', marginLeft: 8, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>● saved</span>}
+        </label>
+        <div style={{ position: 'relative' }}>
+          <input
+            style={{ ...inp, paddingRight: 40 }}
+            type={showPass ? 'text' : 'password'}
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder={config?.password_set ? '••••••••  (leave blank to keep current)' : 'App password or SMTP password'}
+            autoComplete="new-password"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPass(p => !p)}
+            style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#5C6373', padding: 0 }}
+          >
+            {showPass ? <Lock size={14} /> : <Lock size={14} style={{ opacity: 0.4 }} />}
+          </button>
+        </div>
+        <p style={{ fontSize: 11, color: '#5C6373', marginTop: 4 }}>
+          For Gmail: use an <strong style={{ color: '#8B95A7' }}>App Password</strong> — not your regular password. Enable 2-Step Verification → myaccount.google.com/apppasswords
+        </p>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={lbl}>From Email (optional)</label>
+        <input style={inp} value={fromEmail} onChange={e => setFromEmail(e.target.value)} placeholder="NEURASHIELD SOC <noreply@yourcompany.com>" />
+        <p style={{ fontSize: 11, color: '#5C6373', marginTop: 4 }}>Defaults to username if left blank</p>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24, padding: '10px 14px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+        <button
+          type="button"
+          onClick={() => setUseTls(p => !p)}
+          style={{
+            width: 36, height: 20, borderRadius: 10, border: 'none', cursor: 'pointer', padding: 0,
+            background: useTls ? '#3B82F6' : 'rgba(255,255,255,0.1)', transition: 'background 150ms', position: 'relative',
+          }}
+        >
+          <span style={{
+            display: 'block', width: 14, height: 14, borderRadius: '50%', background: '#fff',
+            position: 'absolute', top: 3, left: useTls ? 18 : 3, transition: 'left 150ms',
+          }} />
+        </button>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#F5F7FA' }}>SSL/TLS (port 465)</div>
+          <div style={{ fontSize: 11, color: '#5C6373' }}>Disable for STARTTLS (port 587)</div>
+        </div>
+      </div>
+
+      {testResult && (
+        <div style={{
+          marginBottom: 16, padding: '10px 14px', borderRadius: 8, display: 'flex', alignItems: 'flex-start', gap: 8,
+          background: testResult.success ? 'rgba(34,197,94,0.08)' : 'rgba(239,68,68,0.08)',
+          border: `1px solid ${testResult.success ? 'rgba(34,197,94,0.25)' : 'rgba(239,68,68,0.25)'}`,
+        }}>
+          {testResult.success
+            ? <CheckCircle size={14} style={{ color: '#22C55E', marginTop: 1, flexShrink: 0 }} />
+            : <AlertCircle size={14} style={{ color: '#EF4444', marginTop: 1, flexShrink: 0 }} />}
+          <span style={{ fontSize: 12, color: testResult.success ? '#22C55E' : '#FCA5A5' }}>
+            {testResult.message}
+          </span>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 10 }}>
+        <Button variant="primary" loading={saving} onClick={handleSave}>
+          Save Configuration
+        </Button>
+        <Button
+          variant="ghost"
+          loading={testing}
+          onClick={handleTest}
+          disabled={!config?.is_configured || testing}
+        >
+          <Mail size={13} />
+          Send Test Email
+        </Button>
+      </div>
+
+      {config?.is_configured && (
+        <p style={{ fontSize: 11, color: '#5C6373', marginTop: 12 }}>
+          Test email will be sent to <strong style={{ color: '#8B95A7' }}>{user?.email}</strong>
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ─── SettingsPage ─────────────────────────────────────────────────────────────
 
 import type { MemberRole } from '@/types/tenant'
@@ -1877,13 +2090,14 @@ const ALL_TABS = [
   { id: 'api-keys',             label: 'API Keys',            icon: Key,        minRole: 'admin'  as MemberRole },
   { id: 'log-import',           label: 'Log Import',          icon: Upload,     minRole: 'admin'  as MemberRole },
   { id: 'automation',           label: 'Automation',          icon: Zap,        minRole: 'admin'  as MemberRole },
+  { id: 'email',                label: 'Email Delivery',      icon: Mail,       minRole: 'admin'  as MemberRole },
 ] as const
 
 type TabId = typeof ALL_TABS[number]['id']
 
 const TAB_GROUPS: Array<{ label: string; ids: TabId[] }> = [
   { label: 'Account',        ids: ['profile', 'notifications'] },
-  { label: 'Administration', ids: ['org', 'members', 'api-keys', 'log-import'] },
+  { label: 'Administration', ids: ['org', 'members', 'api-keys', 'log-import', 'email'] },
   { label: 'Operations',     ids: ['automation'] },
 ]
 
@@ -1960,6 +2174,7 @@ export function SettingsPage() {
         {activeTab === 'api-keys'      && <ApiKeysTab       />}
         {activeTab === 'log-import'    && <ImportPage embedded />}
         {activeTab === 'automation'    && <AutomationTab    />}
+        {activeTab === 'email'         && <EmailTab         />}
       </div>
     </div>
   )

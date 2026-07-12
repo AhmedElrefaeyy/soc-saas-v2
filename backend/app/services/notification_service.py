@@ -13,6 +13,24 @@ import structlog
 log = structlog.get_logger(__name__)
 
 
+async def _get_tenant_smtp(db, tenant_id: UUID) -> dict | None:
+    """Load decrypted SMTP config from tenant settings_json, or None if not configured."""
+    from app.models.tenant import Tenant
+    from app.services.email_service import decrypt_smtp_password
+
+    tenant = await db.get(Tenant, tenant_id)
+    raw: dict = (tenant.settings_json or {}).get("smtp_config", {}) if tenant else {}
+    if not raw.get("host") or not raw.get("username"):
+        return None
+    return {
+        "host": raw["host"],
+        "port": raw.get("port", 465),
+        "user": raw["username"],
+        "from_email": raw.get("from_email", raw["username"]),
+        "password": decrypt_smtp_password(raw.get("password_enc", "")) or "",
+    }
+
+
 async def notify_alert_email(
     alert_id: str,
     tenant_id: UUID,
@@ -39,6 +57,7 @@ async def notify_alert_email(
         action = ai.get("recommended_action")
 
         async with database_manager.session() as db:
+            smtp = await _get_tenant_smtp(db, tenant_id)
             result = await db.execute(
                 select(TenantMember, User)
                 .join(User, TenantMember.user_id == User.id)
@@ -59,6 +78,7 @@ async def notify_alert_email(
                         mitre_technique=mitre,
                         recommended_action=action,
                         alert_url=alert_url,
+                        smtp_override=smtp,
                     )
     except Exception:
         log.warning("notify_alert_email_failed", alert_id=alert_id, exc_info=True)
@@ -84,6 +104,7 @@ async def notify_agent_offline_email(
         agents_url = f"{settings.FRONTEND_URL}/agents"
 
         async with database_manager.session() as db:
+            smtp = await _get_tenant_smtp(db, tenant_id)
             result = await db.execute(
                 select(TenantMember, User)
                 .join(User, TenantMember.user_id == User.id)
@@ -101,6 +122,7 @@ async def notify_agent_offline_email(
                         hostname=hostname,
                         last_seen=last_seen,
                         agents_url=agents_url,
+                        smtp_override=smtp,
                     )
     except Exception:
         log.warning("notify_agent_offline_failed", agent_id=agent_id, exc_info=True)
@@ -132,6 +154,7 @@ async def notify_investigation_email(
             return
 
         async with database_manager.session() as db:
+            smtp = await _get_tenant_smtp(db, tenant_uuid)
             result = await db.execute(
                 select(TenantMember, User)
                 .join(User, TenantMember.user_id == User.id)
@@ -150,6 +173,7 @@ async def notify_investigation_email(
                         threat_score=threat_score,
                         verdict_suggestion=verdict_suggestion,
                         investigation_url=inv_url,
+                        smtp_override=smtp,
                     )
     except Exception:
         log.warning(

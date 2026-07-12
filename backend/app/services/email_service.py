@@ -1,6 +1,7 @@
 """
-Email service — Resend (primary) with SMTP fallback.
-Resend uses HTTPS so it works on Railway without port-blocking issues.
+Email service — tenant SMTP (primary) → env SMTP → Resend → Brevo.
+Tenant admins configure SMTP via the Settings UI; credentials are
+Fernet-encrypted at rest in tenant.settings_json["smtp_config"].
 Never raises — email failure must never block business logic.
 """
 
@@ -11,6 +12,27 @@ import structlog
 from app.core.config import get_settings
 
 log = structlog.get_logger(__name__)
+
+
+# ─── Password encryption (reuses the same Fernet key as MFA) ─────────────────
+
+def _fernet():
+    import base64, hashlib
+    from cryptography.fernet import Fernet
+    key = hashlib.sha256(get_settings().JWT_SECRET.encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(key))
+
+
+def encrypt_smtp_password(password: str) -> str:
+    return _fernet().encrypt(password.encode()).decode()
+
+
+def decrypt_smtp_password(encrypted: str) -> str | None:
+    from cryptography.fernet import InvalidToken
+    try:
+        return _fernet().decrypt(encrypted.encode()).decode()
+    except InvalidToken:
+        return None
 
 
 # ─── HTML wrapper ─────────────────────────────────────────────────────────────
@@ -83,6 +105,7 @@ async def _send_email(
     subject: str,
     body_text: str,
     body_html: str = "",
+    smtp_override: dict | None = None,
 ) -> bool:
     """
     Provider priority: SMTP (port 465 SSL) → Resend → Brevo.
@@ -99,7 +122,40 @@ async def _send_email(
     """
     settings = get_settings()
 
-    # ── 1. SMTP port 465 (Gmail SSL — authenticated, inbox delivery) ──────────
+    # ── 1. Tenant SMTP override (configured via Settings UI) ──────────────────
+    if smtp_override and smtp_override.get("host") and smtp_override.get("user"):
+        try:
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+            import aiosmtplib
+
+            port = int(smtp_override.get("port", 465))
+            from_addr = smtp_override.get("from_email") or smtp_override["user"]
+            password = smtp_override.get("password", "")
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"] = f"NEURASHIELD SOC <{from_addr}>"
+            msg["To"] = to_email
+            msg.attach(MIMEText(body_text, "plain", "utf-8"))
+            if body_html:
+                msg.attach(MIMEText(body_html, "html", "utf-8"))
+            await aiosmtplib.send(
+                msg,
+                hostname=smtp_override["host"],
+                port=port,
+                username=smtp_override["user"],
+                password=password,
+                use_tls=port == 465,
+                start_tls=port == 587,
+                timeout=15,
+            )
+            log.info("email_sent_tenant_smtp", to=to_email, subject=subject[:60])
+            return True
+        except Exception as exc:
+            log.warning("email_tenant_smtp_error", to=to_email, error=str(exc))
+            # fall through to env SMTP
+
+    # ── 2. SMTP port 465 (env vars — Gmail SSL) ───────────────────────────────
     if settings.SMTP_HOST and settings.SMTP_USER and settings.SMTP_PASSWORD:
         try:
             from email.mime.multipart import MIMEMultipart
@@ -133,7 +189,7 @@ async def _send_email(
             log.warning("email_smtp_error", to=to_email, error=str(exc))
             # fall through to Resend
 
-    # ── 2. Resend (HTTPS, no port-blocking on Railway) ─────────────────────────
+    # ── 3. Resend (HTTPS, no port-blocking on Railway) ─────────────────────────
     if settings.RESEND_API_KEY:
         try:
             import httpx as _httpx
@@ -166,7 +222,7 @@ async def _send_email(
             log.warning("email_resend_error", to=to_email, error=str(exc))
             # fall through to Brevo
 
-    # ── 3. Brevo (last resort — sends from Gmail address via relay → may spam) ──
+    # ── 4. Brevo (last resort — sends from Gmail address via relay → may spam) ──
     if settings.BREVO_API_KEY:
         try:
             import httpx as _httpx
@@ -311,6 +367,7 @@ async def send_alert_email(
     mitre_technique: str | None,
     recommended_action: str | None,
     alert_url: str,
+    smtp_override: dict | None = None,
 ) -> bool:
     severity_upper = severity.upper()
     sev_colors: dict[str, tuple[str, str]] = {
@@ -366,7 +423,7 @@ async def send_alert_email(
         cta_url=alert_url,
         cta_text="View Alert →",
     )
-    return await _send_email(to_email, subject, body_text, body_html)
+    return await _send_email(to_email, subject, body_text, body_html, smtp_override=smtp_override)
 
 
 async def send_agent_offline_email(
@@ -375,6 +432,7 @@ async def send_agent_offline_email(
     hostname: str,
     last_seen: str,
     agents_url: str,
+    smtp_override: dict | None = None,
 ) -> bool:
     subject = f"Agent Offline: {hostname}"
     body_text = f"Agent {hostname} went offline. Last seen: {last_seen}\nView: {agents_url}"
@@ -402,7 +460,7 @@ async def send_agent_offline_email(
         cta_url=agents_url,
         cta_text="View Agents →",
     )
-    return await _send_email(to_email, subject, body_text, body_html)
+    return await _send_email(to_email, subject, body_text, body_html, smtp_override=smtp_override)
 
 
 async def send_password_reset_email(
@@ -515,6 +573,7 @@ async def send_investigation_email(
     threat_score: int,
     verdict_suggestion: str | None,
     investigation_url: str,
+    smtp_override: dict | None = None,
 ) -> bool:
     subject = f"New Investigation: {investigation_title}"
 
@@ -569,4 +628,34 @@ async def send_investigation_email(
         cta_url=investigation_url,
         cta_text="Review Investigation →",
     )
-    return await _send_email(to_email, subject, body_text, body_html)
+    return await _send_email(to_email, subject, body_text, body_html, smtp_override=smtp_override)
+
+
+async def send_test_email(to_email: str, smtp_config: dict) -> tuple[bool, str]:
+    """
+    Send a test email using the provided SMTP config dict.
+    Returns (success, error_message).
+    """
+    subject = "NEURASHIELD — Email delivery test"
+    body_text = "This is a test email from NEURASHIELD SOC Platform. Your email configuration is working correctly."
+    content_html = """
+<p style="color:#B8C0CC;font-size:14px;line-height:1.7;margin:0 0 20px;">
+  This is a test email from <strong style="color:#F5F7FA;">NEURASHIELD SOC Platform</strong>.<br>
+  Your email configuration is working correctly.
+</p>
+<div style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.2);
+            border-radius:8px;padding:14px 16px;">
+  <div style="font-size:12px;font-weight:600;color:#22C55E;margin-bottom:4px;">
+    &#10003; Email delivery confirmed
+  </div>
+  <div style="font-size:12px;color:#5C6373;">
+    Alerts, investigations, and MFA notifications will be delivered to this address.
+  </div>
+</div>
+"""
+    body_html = _html_wrapper(title="Email configuration test", content=content_html)
+    try:
+        ok = await _send_email(to_email, subject, body_text, body_html, smtp_override=smtp_config)
+        return (ok, "" if ok else "All email providers failed — check credentials and try again")
+    except Exception as exc:
+        return (False, str(exc))

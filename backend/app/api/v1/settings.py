@@ -16,6 +16,7 @@ from app.schemas.common import APIResponse
 router = APIRouter(prefix="/settings", tags=["Settings"])
 
 _THRESHOLDS_KEY = "severity_thresholds"
+_SMTP_KEY = "smtp_config"
 
 
 class SeverityThresholds(BaseModel):
@@ -67,6 +68,147 @@ async def put_severity_thresholds(
         )
         await db.commit()
     return APIResponse.ok(payload)
+
+
+# ─── Email / SMTP configuration ───────────────────────────────────────────────
+
+
+class SmtpConfigPayload(BaseModel):
+    host: str = Field(..., min_length=1, max_length=253)
+    port: int = Field(default=465, ge=1, le=65535)
+    username: str = Field(..., min_length=1)
+    password: str = Field(default="", description="Plain-text; stored encrypted")
+    from_email: str = Field(default="")
+    use_tls: bool = Field(default=True)
+
+
+class SmtpConfigResponse(BaseModel):
+    host: str
+    port: int
+    username: str
+    from_email: str
+    use_tls: bool
+    is_configured: bool
+    password_set: bool
+
+
+class TestEmailPayload(BaseModel):
+    to_email: str = Field(..., min_length=1)
+
+
+class TestEmailResponse(BaseModel):
+    success: bool
+    message: str
+
+
+@router.get(
+    "/email",
+    response_model=APIResponse[SmtpConfigResponse],
+    summary="Get tenant SMTP email configuration",
+)
+async def get_email_config(
+    member: Annotated[object, require_permission(Permission.TENANT_SETTINGS)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> APIResponse[SmtpConfigResponse]:
+    from app.models.tenant import Tenant
+    from app.models.tenant_member import TenantMember
+
+    m: TenantMember = member  # type: ignore[assignment]
+    tenant = await db.get(Tenant, m.tenant_id)
+    raw: dict = (tenant.settings_json or {}).get(_SMTP_KEY, {}) if tenant else {}
+    return APIResponse.ok(SmtpConfigResponse(
+        host=raw.get("host", ""),
+        port=raw.get("port", 465),
+        username=raw.get("username", ""),
+        from_email=raw.get("from_email", ""),
+        use_tls=raw.get("use_tls", True),
+        is_configured=bool(raw.get("host") and raw.get("username")),
+        password_set=bool(raw.get("password_enc")),
+    ))
+
+
+@router.put(
+    "/email",
+    response_model=APIResponse[SmtpConfigResponse],
+    summary="Save tenant SMTP email configuration",
+)
+async def put_email_config(
+    payload: SmtpConfigPayload,
+    member: Annotated[object, require_permission(Permission.TENANT_SETTINGS)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> APIResponse[SmtpConfigResponse]:
+    from app.models.tenant import Tenant
+    from app.models.tenant_member import TenantMember
+    from app.services.email_service import encrypt_smtp_password
+
+    m: TenantMember = member  # type: ignore[assignment]
+    tenant = await db.get(Tenant, m.tenant_id)
+    if tenant is None:
+        from app.core.exceptions import NotFoundError
+        raise NotFoundError("Tenant not found")
+
+    existing: dict = (tenant.settings_json or {}).get(_SMTP_KEY, {})
+    smtp_entry: dict = {
+        "host": payload.host,
+        "port": payload.port,
+        "username": payload.username,
+        "from_email": payload.from_email or payload.username,
+        "use_tls": payload.use_tls,
+        "password_enc": encrypt_smtp_password(payload.password) if payload.password
+                        else existing.get("password_enc", ""),
+    }
+    merged = {**(tenant.settings_json or {}), _SMTP_KEY: smtp_entry}
+    await db.execute(
+        update(Tenant).where(Tenant.id == m.tenant_id).values(settings_json=merged)
+    )
+    await db.commit()
+    return APIResponse.ok(SmtpConfigResponse(
+        host=smtp_entry["host"],
+        port=smtp_entry["port"],
+        username=smtp_entry["username"],
+        from_email=smtp_entry["from_email"],
+        use_tls=smtp_entry["use_tls"],
+        is_configured=True,
+        password_set=bool(smtp_entry.get("password_enc")),
+    ))
+
+
+@router.post(
+    "/email/test",
+    response_model=APIResponse[TestEmailResponse],
+    summary="Send a test email using current SMTP configuration",
+)
+async def test_email_config(
+    payload: TestEmailPayload,
+    member: Annotated[object, require_permission(Permission.TENANT_SETTINGS)],
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> APIResponse[TestEmailResponse]:
+    from app.models.tenant import Tenant
+    from app.models.tenant_member import TenantMember
+    from app.services.email_service import decrypt_smtp_password, send_test_email
+
+    m: TenantMember = member  # type: ignore[assignment]
+    tenant = await db.get(Tenant, m.tenant_id)
+    raw: dict = (tenant.settings_json or {}).get(_SMTP_KEY, {}) if tenant else {}
+
+    if not raw.get("host") or not raw.get("username"):
+        return APIResponse.ok(TestEmailResponse(
+            success=False,
+            message="SMTP not configured — save your settings first",
+        ))
+
+    smtp_config = {
+        "host": raw["host"],
+        "port": raw.get("port", 465),
+        "user": raw["username"],
+        "from_email": raw.get("from_email", raw["username"]),
+        "password": decrypt_smtp_password(raw.get("password_enc", "")) or "",
+    }
+    success, error = await send_test_email(payload.to_email, smtp_config)
+    return APIResponse.ok(TestEmailResponse(
+        success=success,
+        message="Test email sent — check your inbox" if success else error,
+    ))
 
 
 class QuotaResponse(BaseModel):

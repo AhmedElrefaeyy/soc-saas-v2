@@ -84,6 +84,27 @@ export interface NotificationPreferences {
   email_new_investigation: boolean
 }
 
+// ─── Email / SMTP Configuration ───────────────────────────────────────────────
+
+export interface SmtpConfig {
+  host: string
+  port: number
+  username: string
+  from_email: string
+  use_tls: boolean
+  is_configured: boolean
+  password_set: boolean
+}
+
+export interface SmtpConfigPayload {
+  host: string
+  port: number
+  username: string
+  password: string
+  from_email: string
+  use_tls: boolean
+}
+
 // ─── API ──────────────────────────────────────────────────────────────────────
 
 export const settingsApi = {
@@ -155,5 +176,24 @@ export const settingsApi = {
   updateNotificationPrefs: async (prefs: Partial<NotificationPreferences>): Promise<NotificationPreferences> => {
     const resp = await apiClient.patch<{ data: NotificationPreferences }>('/notifications', prefs)
     return resp.data.data!
+  },
+
+  // Email / SMTP config  — GET/PUT /api/v1/settings/email
+  getEmailConfig: async (): Promise<SmtpConfig> => {
+    const resp = await apiClient.get<{ data: SmtpConfig }>('/settings/email')
+    return resp.data.data
+  },
+
+  saveEmailConfig: async (payload: SmtpConfigPayload): Promise<SmtpConfig> => {
+    const resp = await apiClient.put<{ data: SmtpConfig }>('/settings/email', payload)
+    return resp.data.data
+  },
+
+  testEmailConfig: async (toEmail: string): Promise<{ success: boolean; message: string }> => {
+    const resp = await apiClient.post<{ data: { success: boolean; message: string } }>(
+      '/settings/email/test',
+      { to_email: toEmail },
+    )
+    return resp.data.data
   },
 }
