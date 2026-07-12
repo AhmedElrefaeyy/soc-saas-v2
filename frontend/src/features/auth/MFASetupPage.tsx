@@ -1,4 +1,5 @@
-import { useState, useEffect, FormEvent } from "react";
+import { useState, useEffect, useRef, FormEvent } from "react";
+import QRCode from "qrcode";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { ShieldCheck, AlertCircle, Copy, CheckCircle2 } from "lucide-react";
@@ -22,6 +23,8 @@ export function MFASetupPage() {
   const setAuthTenant       = useAuthStore((s) => s.setActiveTenant);
   const setStoreTenant      = useTenantStore((s) => s.setActiveTenant);
 
+  const qrCanvasRef = useRef<HTMLCanvasElement>(null);
+
   const [step, setStep]               = useState<Step>("setup");
   const [setup, setSetup]             = useState<MFASetupResponse | null>(null);
   const [code, setCode]               = useState("");
@@ -39,6 +42,16 @@ export function MFASetupPage() {
       .catch((err) => setError(extractApiError(err)))
       .finally(() => setIsLoading(false));
   }, []);
+
+  useEffect(() => {
+    if (setup?.provisioning_uri && qrCanvasRef.current) {
+      QRCode.toCanvas(qrCanvasRef.current, setup.provisioning_uri, {
+        width: 200,
+        margin: 2,
+        color: { dark: "#000000", light: "#ffffff" },
+      });
+    }
+  }, [setup]);
 
   async function handleVerify(e: FormEvent) {
     e.preventDefault();
@@ -133,18 +146,9 @@ export function MFASetupPage() {
                 </div>
               ) : setup ? (
                 <>
-                  {/* QR code rendered via Google Charts API — provisioning URI is not sensitive */}
                   <div className="flex justify-center mb-6">
-                    <div
-                      className="p-4 rounded-xl"
-                      style={{ background: "#fff" }}
-                    >
-                      <img
-                        src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(setup.provisioning_uri)}&size=200x200`}
-                        alt="MFA QR Code"
-                        width={200}
-                        height={200}
-                      />
+                    <div className="p-4 rounded-xl" style={{ background: "#fff" }}>
+                      <canvas ref={qrCanvasRef} width={200} height={200} />
                     </div>
                   </div>
 
