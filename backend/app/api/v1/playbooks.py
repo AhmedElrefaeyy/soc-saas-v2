@@ -210,6 +210,19 @@ async def generate_playbook(
         mitre_tactics = [tactic] if tactic else []
         evidence = {}
 
+    # investigation_id from the frontend is investigation_group_id — resolve to the PK
+    resolved_inv_id: UUID | None = None
+    if payload.investigation_id is not None:
+        from app.models.investigation import Investigation
+
+        inv_row = await db.execute(
+            select(Investigation.id).where(
+                Investigation.investigation_group_id == str(payload.investigation_id),
+                Investigation.tenant_id == m.tenant_id,
+            )
+        )
+        resolved_inv_id = inv_row.scalar_one_or_none()
+
     playbook = await PlaybookGeneratorService.generate(
         db=db,
         tenant_id=m.tenant_id,
@@ -221,7 +234,7 @@ async def generate_playbook(
         mitre_tactics=mitre_tactics,
         evidence=evidence,
         company_name=company_name,
-        investigation_id=payload.investigation_id,
+        investigation_id=resolved_inv_id,
         created_by_id=m.user_id,
     )
     await db.commit()

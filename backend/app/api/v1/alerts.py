@@ -342,7 +342,6 @@ async def get_alert_context(
         select(Investigation)
         .where(
             Investigation.tenant_id == m.tenant_id,
-            Investigation.deleted_at.is_(None),
             Investigation.triggering_alert_ids.contains([str(alert_id)]),  # type: ignore
         )
         .limit(1)
