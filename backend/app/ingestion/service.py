@@ -76,6 +76,10 @@ _ALLOWED_EXTRA_FIELDS: frozenset[str] = frozenset(
         "Protocol",
         "DestinationHostname",
         "source_ip",
+        # Windows Firewall Security log fields (Event 5156/5157/5158/5159)
+        "SourceAddress",
+        "DestAddress",
+        "DestPort",
     }
 )
 
