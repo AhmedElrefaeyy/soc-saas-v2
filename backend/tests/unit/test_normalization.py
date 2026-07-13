@@ -139,6 +139,82 @@ class TestWindowsNormalization:
         assert result.user.domain == "CORP"
 
 
+class TestWindowsFirewallNormalization:
+    """Windows Firewall audit events (5156/5157) — ICMP/network detection coverage."""
+
+    def _firewall_message(self, src: str = "172.20.10.2", dst: str = "10.0.0.1", proto: str = "1"):
+        return _base_message(
+            event_id_windows="5156",
+            SourceAddress=src,
+            DestAddress=dst,
+            SourcePort="0",
+            DestPort="0",
+            Protocol=proto,
+        )
+
+    def test_5156_icmp_sets_network_src_ip(self):
+        msg = self._firewall_message()
+        event = map_stream_message_to_normalized(msg)
+        assert event.network is not None, "network must not be None for Event 5156"
+        assert event.network.src_ip == "172.20.10.2"
+
+    def test_5156_icmp_sets_network_dst_ip(self):
+        msg = self._firewall_message()
+        event = map_stream_message_to_normalized(msg)
+        assert event.network is not None
+        assert event.network.dst_ip == "10.0.0.1"
+
+    def test_5156_protocol_number_mapped_to_icmp(self):
+        msg = self._firewall_message(proto="1")
+        event = map_stream_message_to_normalized(msg)
+        assert event.network is not None
+        assert event.network.protocol == "ICMP"
+
+    def test_5156_protocol_6_mapped_to_tcp(self):
+        msg = self._firewall_message(proto="6")
+        event = map_stream_message_to_normalized(msg)
+        assert event.network is not None
+        assert event.network.protocol == "TCP"
+
+    def test_5156_category_is_network(self):
+        msg = self._firewall_message()
+        event = map_stream_message_to_normalized(msg)
+        assert event.category == "network"
+
+    def test_5156_source_ip_property_matches_network_src_ip(self):
+        msg = self._firewall_message()
+        event = map_stream_message_to_normalized(msg)
+        assert event.source_ip == "172.20.10.2"
+
+    def test_detection_rule_matches_icmp_from_specific_ip(self):
+        """Full detection check: rule network.src_ip eq + network.protocol eq ICMP."""
+        from app.detection.patterns import evaluate_conditions
+
+        msg = self._firewall_message(src="172.20.10.2", proto="1")
+        event = map_stream_message_to_normalized(msg)
+
+        conditions = [
+            {"field": "network.src_ip", "op": "eq", "value": "172.20.10.2"},
+            {"field": "network.protocol", "op": "eq", "value": "ICMP"},
+        ]
+        assert evaluate_conditions(conditions, event), (
+            f"Rule should fire — network.src_ip={event.source_ip}, "
+            f"network.protocol={event.network.protocol if event.network else None}"
+        )
+
+    def test_detection_rule_does_not_match_wrong_ip(self):
+        from app.detection.patterns import evaluate_conditions
+
+        msg = self._firewall_message(src="10.99.99.99", proto="1")
+        event = map_stream_message_to_normalized(msg)
+
+        conditions = [
+            {"field": "network.src_ip", "op": "eq", "value": "172.20.10.2"},
+            {"field": "network.protocol", "op": "eq", "value": "ICMP"},
+        ]
+        assert not evaluate_conditions(conditions, event)
+
+
 class TestLinuxNormalization:
     def test_execve_syscall(self):
         msg = _base_message(
