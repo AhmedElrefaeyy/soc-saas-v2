@@ -332,8 +332,8 @@ async def get_dashboard_summary(
         await db.execute(
             text("""
         SELECT
-            COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved','false_positive'))                       AS active,
-            COUNT(*) FILTER (WHERE confidence IN ('high','confirmed') AND created_at >= :ps)                   AS correlated,
+            COUNT(*) FILTER (WHERE status NOT IN ('closed','resolved','false_positive'))  AS active,
+            COUNT(*) FILTER (WHERE created_at >= :ps)                                     AS correlated,
             COUNT(*) FILTER (WHERE created_at >= :prev_ps AND created_at < :ps AND status NOT IN ('closed','resolved','false_positive')) AS prev_active
         FROM investigations
         WHERE tenant_id = CAST(:tid AS uuid)
@@ -342,18 +342,16 @@ async def get_dashboard_summary(
         )
     ).fetchone()
 
-    # AI Queue: alerts that have NOT yet been analysed by the AI engine.
-    # The alert AI runs synchronously in the detection worker but can fail;
-    # this count catches any that fell through (metadata column stores the result).
+    # AI Queue: investigations that scored >= 60 (should receive AI analysis)
+    # but don't have ai_analysis_json yet — either still pending or failed.
     ai_pending_row = (
         await db.execute(
             text("""
         SELECT COUNT(*) AS ai_pending
-        FROM alerts
+        FROM investigations
         WHERE tenant_id = CAST(:tid AS uuid)
-          AND deleted_at IS NULL
-          AND status = 'open'
-          AND (metadata IS NULL OR metadata->'ai_analysis' IS NULL)
+          AND threat_score >= 60
+          AND ai_analysis_json IS NULL
           AND created_at >= :ps
     """),
             {"tid": tid, "ps": period_start},

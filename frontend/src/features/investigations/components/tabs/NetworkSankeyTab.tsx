@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef, useMemo } from "react";
+import { Network } from "lucide-react";
 import { apiClient } from "@/api/client";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -149,15 +150,16 @@ export function NetworkSankeyTab({ id, isActive }: Props) {
     queryFn: () =>
       apiClient
         .get<{ data: NetworkFlowResponse }>(`/investigations/${id}/network-flows`)
-         
         .then((r) => r.data.data ?? { flows: [] as NetworkFlow[], start_time: "", end_time: "" })
         .catch(() => ({ flows: [] as NetworkFlow[], start_time: null, end_time: null })),
     enabled: isActive,
     staleTime: 120_000,
   });
 
+  const flows = data?.flows ?? [];
+
   const { nodes, links } = useMemo(
-    () => buildSankey(data?.flows ?? [], W, H),
+    () => buildSankey(flows, W, H),
     [data],
   );
 
@@ -173,6 +175,22 @@ export function NetworkSankeyTab({ id, isActive }: Props) {
     if (!node.isSource) return "rgba(99,102,241,0.8)";
     if (node.isSink)    return "rgba(239,68,68,0.8)";
     return "rgba(59,130,246,0.8)";
+  }
+
+  if (isLoading) {
+    return <div className="skel w-full h-96 rounded-xl animate-pulse" />;
+  }
+
+  if (flows.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <Network size={36} className="text-text-disabled block mx-auto mb-3" />
+        <div className="text-sm font-semibold text-text-muted mb-1.5">No network flows</div>
+        <div className="text-xs text-text-disabled max-w-xs mx-auto">
+          Network connections will appear here as alerts with source and destination IP data are correlated
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -200,79 +218,75 @@ export function NetworkSankeyTab({ id, isActive }: Props) {
       </div>
 
       <div className="rounded-xl border border-border bg-bg-card overflow-hidden">
-        {isLoading ? (
-          <div className="skel w-full h-96 animate-pulse" />
-        ) : (
-          <svg
-            ref={svgRef}
-            viewBox={`0 0 ${W} ${H}`}
-            className="w-full"
-            style={{ height: H, maxHeight: H }}
-            role="img"
-            aria-label="Network flow Sankey diagram"
-          >
-            {/* Links */}
-            {links.map((link, i) => (
-              <g key={i}>
-                <path
-                  d={link.path}
-                  fill="none"
-                  stroke={linkColor(link.flow)}
-                  strokeWidth={link.width}
-                  strokeLinecap="round"
-                  opacity={0.8}
-                >
-                  <title>{`${link.flow.source} → ${link.flow.target}: ${fmtBytes(link.bytes)} (${link.flow.proto})`}</title>
-                </path>
-              </g>
-            ))}
+        <svg
+          ref={svgRef}
+          viewBox={`0 0 ${W} ${H}`}
+          className="w-full"
+          style={{ height: H, maxHeight: H }}
+          role="img"
+          aria-label="Network flow Sankey diagram"
+        >
+          {/* Links */}
+          {links.map((link, i) => (
+            <g key={i}>
+              <path
+                d={link.path}
+                fill="none"
+                stroke={linkColor(link.flow)}
+                strokeWidth={link.width}
+                strokeLinecap="round"
+                opacity={0.8}
+              >
+                <title>{`${link.flow.source} → ${link.flow.target}: ${fmtBytes(link.bytes)} (${link.flow.proto})`}</title>
+              </path>
+            </g>
+          ))}
 
-            {/* Nodes */}
-            {nodes.map((node) => (
-              <g key={node.id}>
-                <rect
-                  x={node.x}
-                  y={node.y}
-                  width={NODE_W}
-                  height={node.height}
-                  rx={4}
-                  fill={nodeColor(node)}
-                  opacity={0.85}
-                />
-                {/* Node label */}
-                <foreignObject x={node.x + 4} y={node.y + 4} width={NODE_W - 8} height={node.height - 8}>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      fontFamily: "'JetBrains Mono', monospace",
-                      color: "#F5F7FA",
-                      lineHeight: 1.3,
-                      wordBreak: "break-all",
-                      overflow: "hidden",
-                      display: "-webkit-box",
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: "vertical",
-                    }}
-                  >
-                    {node.id}
-                  </div>
-                  <div style={{ fontSize: 9, color: "rgba(245,247,250,0.65)", marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>
-                    {fmtBytes(node.totalBytes)}
-                  </div>
-                </foreignObject>
-              </g>
-            ))}
-          </svg>
-        )}
+          {/* Nodes */}
+          {nodes.map((node) => (
+            <g key={node.id}>
+              <rect
+                x={node.x}
+                y={node.y}
+                width={NODE_W}
+                height={node.height}
+                rx={4}
+                fill={nodeColor(node)}
+                opacity={0.85}
+              />
+              {/* Node label */}
+              <foreignObject x={node.x + 4} y={node.y + 4} width={NODE_W - 8} height={node.height - 8}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: "#F5F7FA",
+                    lineHeight: 1.3,
+                    wordBreak: "break-all",
+                    overflow: "hidden",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                  }}
+                >
+                  {node.id}
+                </div>
+                <div style={{ fontSize: 9, color: "rgba(245,247,250,0.65)", marginTop: 2, fontFamily: "'JetBrains Mono', monospace" }}>
+                  {fmtBytes(node.totalBytes)}
+                </div>
+              </foreignObject>
+            </g>
+          ))}
+        </svg>
       </div>
 
       {/* Flow table */}
-      {data && data.flows.length > 0 && (
+      {flows.length > 0 && (
         <div className="rounded-xl border border-border overflow-hidden">
           <div className="grid px-4 py-2 bg-bg-elevated border-b border-border text-2xs font-bold uppercase tracking-widest text-text-muted" style={{ gridTemplateColumns: "1fr 1fr 80px 80px 70px 80px" }}>
             {["Source", "Destination", "Bytes", "Packets", "Proto", "Type"].map((h) => <span key={h}>{h}</span>)}
           </div>
-          {data.flows.map((flow: NetworkFlow, i: number) => (
+          {flows.map((flow: NetworkFlow, i: number) => (
             <div key={i} className="grid items-center px-4 py-2 border-b border-border/50 last:border-0 hover:bg-bg-elevated/50 transition-colors text-xs" style={{ gridTemplateColumns: "1fr 1fr 80px 80px 70px 80px" }}>
               <span className="font-mono text-text-secondary truncate pr-2">{flow.source}</span>
               <span className="font-mono text-text-secondary truncate pr-2">{flow.target}</span>

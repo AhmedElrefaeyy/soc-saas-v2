@@ -17,6 +17,7 @@ Pagination: cursor-based (base64 encoded "timestamp|index").
 """
 
 import base64
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -46,6 +47,16 @@ class TimelineService:
         total_events: int = raw.get("total_events") or len(all_entries)
         first_seen: float = raw.get("first_seen") or 0.0
         last_seen: float = raw.get("last_seen") or 0.0
+
+        # Fallback: if worker hasn't generated timeline_json yet, build synthetic
+        # entries from the linked alert evidence so new investigations show data immediately.
+        if not all_entries and inv.triggering_alert_ids:
+            all_entries = await _build_entries_from_alerts(db, tenant_id, inv.triggering_alert_ids)
+            total_events = len(all_entries)
+            if all_entries:
+                timestamps = [e["timestamp"] for e in all_entries]
+                first_seen = min(timestamps)
+                last_seen = max(timestamps)
 
         # ── Apply filters ──────────────────────────────────────────────────────
         filtered = _apply_timeline_filters(all_entries, filters)
@@ -166,3 +177,74 @@ async def _require_investigation(
     if inv is None:
         raise NotFoundError(f"Investigation {investigation_id} not found")
     return inv
+
+
+_ACTION_MAP: dict[str, str] = {
+    "process": "process_execution",
+    "network": "network_connection",
+    "file": "file_operation",
+    "auth": "authentication",
+    "registry": "registry_access",
+    "dns": "dns_query",
+}
+
+_SEVERITY_OUTCOME: dict[int, str] = {1: "low", 2: "medium", 3: "high", 4: "critical"}
+
+
+async def _build_entries_from_alerts(
+    db: AsyncSession,
+    tenant_id: UUID,
+    alert_ids: list[str],
+) -> list[dict[str, Any]]:
+    """Build synthetic timeline entries from linked alert evidence."""
+    import uuid as _uuid_mod
+
+    from app.models.alert import Alert
+
+    parsed: list[UUID] = []
+    for aid in alert_ids:
+        try:
+            parsed.append(_uuid_mod.UUID(str(aid)))
+        except (ValueError, AttributeError):
+            pass
+
+    if not parsed:
+        return []
+
+    result = await db.execute(
+        select(Alert).where(Alert.id.in_(parsed), Alert.tenant_id == tenant_id)
+    )
+    alerts = list(result.scalars().all())
+
+    entries: list[dict[str, Any]] = []
+    for alert in alerts:
+        ev = alert.evidence or {}
+        category = ev.get("category") or "other"
+        sev = int(ev.get("severity") or 1)
+
+        ts_str = ev.get("event_timestamp") or (
+            alert.created_at.isoformat() if alert.created_at else None
+        )
+        try:
+            ts_epoch = datetime.fromisoformat(ts_str).timestamp() if ts_str else 0.0
+        except (ValueError, TypeError):
+            ts_epoch = alert.created_at.timestamp() if alert.created_at else 0.0
+
+        proc = ev.get("process") or {}
+        user = ev.get("user") or {}
+
+        entries.append({
+            "event_id": ev.get("event_id") or str(alert.id),
+            "timestamp": ts_epoch,
+            "hostname": ev.get("hostname") or alert.source_host or "",
+            "username": user.get("name") if isinstance(user, dict) else None,
+            "process": proc.get("name") if isinstance(proc, dict) else None,
+            "action": _ACTION_MAP.get(category, "event"),
+            "outcome": _SEVERITY_OUTCOME.get(sev, "low"),
+            "severity": sev,
+            "category": category,
+            "rule_match": [ev["rule_name"]] if ev.get("rule_name") else [],
+            "entity_keys": [],
+        })
+
+    return entries
