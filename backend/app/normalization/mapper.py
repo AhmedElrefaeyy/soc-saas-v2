@@ -122,6 +122,12 @@ _LABEL_TO_WIN_FIELD: dict[str, str] = {
     "Member Name": "MemberName",
     "Process Name": "Image",
     "Logon Type": "LogonType",
+    # Windows Filtering Platform event fields (Event 5156/5157/5158)
+    "Source Address": "SourceAddress",
+    "Source Port": "SourcePort",
+    "Destination Address": "DestAddress",
+    "Destination Port": "DestPort",
+    "Protocol": "Protocol",
 }
 
 
@@ -174,19 +180,23 @@ def _enrich_from_raw_message(message: dict[str, Any]) -> dict[str, Any]:
     body = re.sub(r"^EventID\s+\d+:\s*", "", raw_msg).strip()
 
     # ── Parse "Key: Value" lines (classic Security log format) ─────────────────
+    # Windows events use "Key:\t\tValue" (tabs after colon) or "Key: Value" (space).
+    # Split on the colon and strip both sides to handle both formats.
     for line in body.splitlines():
         line = line.strip()
-        if ": " in line:
-            k, _, v = line.partition(": ")
+        if ":" in line:
+            k, _, v = line.partition(":")
             k = k.strip()
             v = v.strip()
-            if k and v and v not in ("-", ""):
-                mapped = _LABEL_TO_WIN_FIELD.get(k)
-                if mapped:
-                    extra[mapped] = v
-                elif "=" not in k:
-                    # Unknown label — pass through as-is (may be useful for Sysmon fields)
-                    extra[k] = v
+            # Skip section headers (no value after colon) and lines that are just colons
+            if not k or not v or v in ("-", ""):
+                continue
+            mapped = _LABEL_TO_WIN_FIELD.get(k)
+            if mapped:
+                extra[mapped] = v
+            elif "=" not in k:
+                # Unknown label — pass through as-is (may be useful for Sysmon fields)
+                extra[k] = v
 
     # ── Parse "Key=Value; Key2=Value2" (modern Sysmon/PowerShell channel format) ─
     if not extra.get("Image") and "=" in body:
