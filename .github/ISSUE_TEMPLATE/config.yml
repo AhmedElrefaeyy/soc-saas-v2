@@ -2,8 +2,8 @@ blank_issues_enabled: false
 
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/ai-soc-analyst/soc-saas-v2/blob/main/SECURITY.md
+    url: https://github.com/AhmedElrefaeyy/soc-saas-v2/blob/main/SECURITY.md
     about: Please report security vulnerabilities privately — do not open a public issue.
   - name: Question / discussion
-    url: https://github.com/ai-soc-analyst/soc-saas-v2/discussions
+    url: https://github.com/AhmedElrefaeyy/soc-saas-v2/discussions
     about: General questions, design discussions, and help requests go here.

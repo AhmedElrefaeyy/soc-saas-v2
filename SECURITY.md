@@ -13,7 +13,7 @@
 
 **Please do not report security vulnerabilities through public GitHub issues, pull requests, or discussions.**
 
-To report a vulnerability, email us at: **security@neurashield.io**
+To report a vulnerability, email us at: **ai.soc.anlaylst.team@gmail.com**
 
 Include as much of the following as possible:
 

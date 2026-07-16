@@ -12,19 +12,27 @@
 
 <br />
 
-[![CI](https://github.com/ai-soc-analyst/soc-saas-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/ai-soc-analyst/soc-saas-v2/actions/workflows/ci.yml)
+[![CI](https://github.com/AhmedElrefaeyy/soc-saas-v2/actions/workflows/ci.yml/badge.svg)](https://github.com/AhmedElrefaeyy/soc-saas-v2/actions/workflows/ci.yml)
 [![Python 3.12+](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=fff)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?logo=fastapi&logoColor=fff)](https://fastapi.tiangolo.com)
 [![React 18](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=000)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=fff)](https://typescriptlang.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?logo=postgresql&logoColor=fff)](https://postgresql.org)
 [![Redis](https://img.shields.io/badge/Redis-7-DC382D?logo=redis&logoColor=fff)](https://redis.io)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E)](LICENSE)
+[![License: Proprietary](https://img.shields.io/badge/License-Proprietary-EF4444)](LICENSE)
 
 <br />
 
-[Quick Start](#-quick-start) &nbsp;·&nbsp; [Features](#-features) &nbsp;·&nbsp; [Architecture](#-architecture) &nbsp;·&nbsp; [Connectors](#-connectors) &nbsp;·&nbsp; [Deploy](#-deployment) &nbsp;·&nbsp; [Contributing](CONTRIBUTING.md)
+[Quick Start](#-quick-start) &nbsp;·&nbsp; [Features](#-features) &nbsp;·&nbsp; [Architecture](#-architecture) &nbsp;·&nbsp; [Connectors](#-connectors) &nbsp;·&nbsp; [Deploy](#-deployment) &nbsp;·&nbsp; [License](#license)
 
+</div>
+
+---
+
+## Brand
+
+<div align="center">
+<img src="docs/assets/logo-construction.png" alt="NeuraShield logo construction" width="640" />
 </div>
 
 ---
@@ -166,7 +174,7 @@ Every layer is built for **multi-tenancy**: data, rate limits, API keys, playboo
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/ai-soc-analyst/soc-saas-v2.git
+git clone https://github.com/AhmedElrefaeyy/soc-saas-v2.git
 cd soc-saas-v2
 
 cp backend/.env.example backend/.env
@@ -199,16 +207,23 @@ All five services start with health-check ordering (`db → redis → backend �
 
 Visit **http://localhost:5173** → **Get Started** → complete the setup wizard.
 
-Or via API:
+Or via API — register, then create your tenant with the returned access token:
 
 ```bash
+# 1. Register — returns access_token + refresh_token
 curl -X POST http://localhost:8000/api/v1/auth/register \
   -H "Content-Type: application/json" \
   -d '{
+    "full_name": "Admin User",
     "email": "admin@example.com",
-    "password": "YourStr0ng!Pass",
-    "tenant_name": "Acme SOC"
+    "password": "YourStr0ng!Pass"
   }'
+
+# 2. Create a tenant with the access_token from step 1
+curl -X POST http://localhost:8000/api/v1/tenants \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <access_token>" \
+  -d '{"name": "Acme SOC"}'
 ```
 
 ---
@@ -318,15 +333,14 @@ See [docs/connectors.md](docs/connectors.md) for copy-paste config snippets for 
 
 NeuraShield deploys as a Railway project (backend API + background worker + frontend), backed by external free-tier managed Postgres ([Neon](https://neon.tech)) and Redis ([Upstash](https://upstash.com)) — this keeps everything on free tiers with no card required anywhere.
 
-1. **Fork** this repository
-2. Create a free [Neon](https://neon.tech) Postgres project and an [Upstash](https://upstash.com) Redis database; copy both connection strings
-3. In [Railway](https://railway.app), create a new project → **Deploy from GitHub repo** → select your fork
-4. Add three services from the same repo, each with its own **Root Directory** / Dockerfile:
+1. Create a free [Neon](https://neon.tech) Postgres project and an [Upstash](https://upstash.com) Redis database; copy both connection strings
+2. In [Railway](https://railway.app), create a new project → **Deploy from GitHub repo** → select this repo
+3. Add three services from the same repo, each with its own **Root Directory** / Dockerfile:
    - **backend** — `backend/Dockerfile`, runs `./start.sh` (applies migrations, then starts uvicorn; runs the worker in-process when `RUN_WORKER_INLINE=true`)
    - **worker** — `backend/Dockerfile` with `WORKER_MODE=true` (skip if running the worker in-process on the backend service instead, to stay within a single free service)
    - **frontend** — `frontend/Dockerfile`
-5. Set `DATABASE_URL` / `REDIS_URL` to the Neon/Upstash connection strings on every backend/worker service, plus `JWT_SECRET` / `JWT_REFRESH_SECRET` (generate each with `openssl rand -hex 64`, must differ), `FRONTEND_URL`, and `ALLOWED_ORIGINS`
-6. Every push to `main` auto-deploys once GitHub is connected
+4. Set `DATABASE_URL` / `REDIS_URL` to the Neon/Upstash connection strings on every backend/worker service, plus `JWT_SECRET` / `JWT_REFRESH_SECRET` (generate each with `openssl rand -hex 64`, must differ), `FRONTEND_URL`, and `ALLOWED_ORIGINS`
+5. Every push to `main` auto-deploys once GitHub is connected
 
 **Cost note:** Railway's free tier is credit-based (a small monthly allowance) — once it's used up, services pause until the next cycle. Running the worker in-process on the backend service (`RUN_WORKER_INLINE=true`) instead of as a separate service roughly halves credit burn if you're on the free tier.
 
@@ -420,18 +434,12 @@ Read our [Security Policy](SECURITY.md) and report privately.
 
 ## Contributing
 
-Contributions are welcome — bug fixes, new connectors, detection rules, UI improvements.
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
-
-Quick guide:
-1. Fork the repo and create a branch from `main`
-2. Make your changes (include tests where relevant)
-3. Ensure `ruff`, `mypy`, `eslint`, and `tsc` all pass
-4. Open a PR — the CI pipeline runs automatically
+This repository is closed to external contributions — it's published for viewing and demonstration purposes only. See [License](#license) below.
 
 ---
 
 ## License
 
-[MIT](LICENSE) © 2025 NeuraShield Contributors
+This repository is **source-available for viewing only** — not open source. All rights reserved; no permission is granted to use, copy, modify, or redistribute this code. See [LICENSE](LICENSE) for the full terms.
+
+© 2025 Ahmed Elrefaey
