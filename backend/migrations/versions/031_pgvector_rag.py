@@ -18,8 +18,8 @@ depends_on = None
 def upgrade() -> None:
     conn = op.get_bind()
     # Check availability before attempting — pgvector must be installed on the
-    # PostgreSQL server (not just as a Python package). Railway Postgres includes
-    # it, but self-hosted or some managed providers may not.
+    # PostgreSQL server (not just as a Python package). Some managed providers
+    # (e.g. Railway) include it by default; self-hosted or other providers may not.
     result = conn.execute(sa.text(
         "SELECT COUNT(*) FROM pg_available_extensions WHERE name = 'vector'"
     ))

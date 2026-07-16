@@ -105,7 +105,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     enforce CSP on HTML document responses, so the CSP header here provides
     defence-in-depth for API responses but does NOT protect the React SPA against
     XSS.  CSP for the SPA must be set at the layer that serves the built frontend
-    (Nginx, Railway static, or CDN).  Use a header equivalent to:
+    (Nginx, static host, or CDN).  Use a header equivalent to:
 
         Content-Security-Policy:
           default-src 'self';

@@ -234,9 +234,9 @@ function HeroSection() {
               { color: 'text-tx-4',    text: '# Agent installed on WORKSTATION-01' },
               { color: 'text-green-400', text: '[10:42:13] INFO  agent started  host=WORKSTATION-01  os=Windows 11' },
               { color: 'text-tx-3',    text: '[10:42:14] INFO  events streaming  channel=Security,System,Sysmon' },
-              { color: 'text-amber-400', text: '[10:43:01] WARN  threat_ip_detected  src=185.220.101.50  score=98  rule="AbuseIPDB Threat IP"' },
-              { color: 'text-red-400',   text: '[10:43:02] CRIT  alert_fired  rule="Credential Dump via Mimikatz"  severity=critical' },
-              { color: 'text-red-400',   text: '[10:43:03] CRIT  alert_fired  rule="Lateral Movement - PsExec"  severity=critical' },
+              { color: 'text-amber-400', text: '[10:43:01] WARN  threat_ip_detected  src=185.220.101.50  score=98  flags=abuseipdb_high_confidence' },
+              { color: 'text-red-400',   text: '[10:43:02] CRIT  alert_fired  rule="Mimikatz - Credential Dumping Tool Detected"  severity=critical' },
+              { color: 'text-red-400',   text: '[10:43:03] CRIT  alert_fired  rule="PsExec Lateral Movement"  severity=critical' },
               { color: 'text-purple-400',text: '[10:43:03] CRIT  attack_chain_fired  chain="Credential Dump → Lateral Movement"  host=WORKSTATION-01' },
               { color: 'text-blue-400',  text: '[10:43:03] INFO  playbook_generated  title="IR: Credential Access Incident"  steps=12' },
               { color: 'text-blue-400',  text: '[10:43:03] INFO  notification_sent  channels=slack,pagerduty,email' },
@@ -265,7 +265,7 @@ function HeroSection() {
 // ─── Stats bar ────────────────────────────────────────────────────────────────
 
 const STATS = [
-  { value: 80, suffix: '+', label: 'Detection Rules' },
+  { value: 110, suffix: '+', label: 'Detection Rules' },
   { value: 12, suffix: '',  label: 'Attack Chain Patterns' },
   { value: 100, suffix: '%', label: 'MITRE ATT&CK Mapped' },
   { value: 0, suffix: '',   label: 'Manual Config Required' },
@@ -326,7 +326,7 @@ const FEATURES = [
     glow: 'rgba(6,182,212,0.15)',
     title: 'Live Threat Intelligence',
     description:
-      'Every event is enriched in real-time via AbuseIPDB (IP reputation) and MalwareBazaar (file hash IOC) — flagging threats before rules even need to fire.',
+      'Every event is enriched in real-time via AbuseIPDB, AlienVault OTX, and VirusTotal (IP reputation) plus MalwareBazaar (file hash IOC) — flagging threats before rules even need to fire.',
   },
   {
     icon: UserCheck,
@@ -411,8 +411,8 @@ const STEPS = [
     title: 'Deploy the Agent',
     subtitle: '~ 30 seconds',
     description:
-      'Run a single installer script on any Windows or Linux endpoint. The lightweight Python agent reads event logs, monitors file integrity, and watches network activity — no reboot, no kernel module.',
-    bullets: ['Windows Event Log + Sysmon support', 'Linux syslog + auditd', 'File integrity monitoring', 'Auto-registers with your tenant'],
+      'Run a single PowerShell installer on any Windows endpoint. The lightweight agent reads event logs, monitors file integrity, and watches network activity — no reboot, no kernel module. Linux and other sources feed in via the connector API (Syslog, Wazuh, Suricata, Defender).',
+    bullets: ['Windows Event Log + Sysmon support', 'File integrity monitoring', 'Linux / third-party logs via connectors', 'Auto-registers with your tenant'],
   },
   {
     num: '02',
@@ -429,7 +429,7 @@ const STEPS = [
     title: 'AI Alerts & Responds',
     subtitle: 'Instant notification',
     description:
-      'The detection engine fires alerts against 80+ rules. Attack chains correlate multi-stage sequences. AI generates IR playbooks and notifies your team via Slack, Teams, PagerDuty, or email.',
+      'The detection engine fires alerts against 110+ rules (native, Sigma, and UEBA). Attack chains correlate multi-stage sequences. AI generates IR playbooks and notifies your team via Slack, Teams, PagerDuty, or email.',
     bullets: ['Real-time dashboard alerts', 'Attack chain correlation', 'AI-generated IR playbooks', 'Slack / Teams / PagerDuty / Email'],
   },
 ]
@@ -499,18 +499,18 @@ function HowItWorksSection() {
 // ─── MITRE coverage ───────────────────────────────────────────────────────────
 
 const TACTICS = [
-  { name: 'Initial Access',      count: 8  },
-  { name: 'Execution',           count: 14 },
-  { name: 'Persistence',         count: 9  },
-  { name: 'Privilege Escalation',count: 7  },
-  { name: 'Defense Evasion',     count: 12 },
-  { name: 'Credential Access',   count: 10 },
-  { name: 'Discovery',           count: 6  },
-  { name: 'Lateral Movement',    count: 8  },
-  { name: 'Collection',          count: 4  },
-  { name: 'Command & Control',   count: 7  },
-  { name: 'Exfiltration',        count: 5  },
-  { name: 'Impact',              count: 10 },
+  { name: 'Initial Access',      count: 3  },
+  { name: 'Execution',           count: 22 },
+  { name: 'Persistence',         count: 16 },
+  { name: 'Privilege Escalation',count: 10 },
+  { name: 'Defense Evasion',     count: 28 },
+  { name: 'Credential Access',   count: 18 },
+  { name: 'Discovery',           count: 7  },
+  { name: 'Lateral Movement',    count: 9  },
+  { name: 'Collection',          count: 2  },
+  { name: 'Command & Control',   count: 8  },
+  { name: 'Exfiltration',        count: 4  },
+  { name: 'Impact',              count: 7  },
 ]
 
 function MitreCoverageSection() {
@@ -639,7 +639,7 @@ function ArchitectureSection() {
           transition={{ delay: 0.6, duration: 0.4 }}
           className="mt-12 flex flex-wrap items-center justify-center gap-3"
         >
-          {['Slack', 'Microsoft Teams', 'PagerDuty', 'Email', 'Webhooks', 'AbuseIPDB', 'MalwareBazaar'].map((int) => (
+          {['Slack', 'Microsoft Teams', 'PagerDuty', 'Email', 'Webhooks', 'Wazuh', 'Suricata', 'Microsoft Defender ATP', 'Syslog', 'AbuseIPDB', 'AlienVault OTX', 'VirusTotal', 'MalwareBazaar'].map((int) => (
             <span
               key={int}
               className="px-3 py-1.5 rounded-lg border border-border text-xs text-tx-4 bg-bg-elevated"

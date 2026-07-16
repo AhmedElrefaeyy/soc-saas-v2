@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     # ─── Redis ────────────────────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
     # 8 per service × 2 services (API + Worker) = 16 total — stays within
-    # Railway managed-Redis connection limits (typically 20 on hobby plan).
+    # typical managed-Redis connection limits on low-tier hosting plans.
     REDIS_MAX_CONNECTIONS: int = 8
     # Dedicated Redis DB for event stream workers (workers use this; API uses REDIS_URL).
     # Defaults to REDIS_URL with /1 appended (same server, different DB).
@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     # Leave empty to disable token auth (metrics are still accessible in dev).
     METRICS_SECRET_TOKEN: str = ""
     # Sentry DSN — leave empty to disable error tracking (safe default).
-    # Set in Railway environment: SENTRY_DSN=https://...@sentry.io/...
+    # Set in your hosting provider's environment: SENTRY_DSN=https://...@sentry.io/...
     SENTRY_DSN: str = ""
     SENTRY_TRACES_SAMPLE_RATE: float = 0.1  # 10% of transactions traced
     SENTRY_PROFILES_SAMPLE_RATE: float = 0.1
@@ -213,7 +213,7 @@ class Settings(BaseSettings):
         if "localhost" in self.REDIS_URL or "127.0.0.1" in self.REDIS_URL:
             raise ValueError(
                 "REDIS_URL cannot point to localhost in production. "
-                "Set REDIS_URL to your Redis instance URL (e.g. rediss://... on Railway)."
+                "Set REDIS_URL to your managed Redis instance URL (e.g. rediss://... on Upstash)."
             )
         all_localhost = all("localhost" in o or "127.0.0.1" in o for o in self.ALLOWED_ORIGINS)
         if all_localhost and not self.CORS_ALLOW_ORIGIN_REGEX:

@@ -113,7 +113,8 @@ async def _send_email(
     Gmail SMTP with an App Password sends through Google's own servers, so
     DKIM/SPF pass and emails land directly in inbox — no third-party relay
     reputation issues.  Port 465 (SSL) works on Railway; port 587 (STARTTLS)
-    does not.  Resend is the fallback (HTTPS, no port restrictions).
+    does not — verify which outbound SMTP ports your host allows before relying
+    on this path.  Resend is the fallback (HTTPS, no port restrictions).
     Brevo is last resort — it sends from a Gmail address via a relay which
     Gmail spam-filters flag as spoofed.
 
@@ -189,7 +190,7 @@ async def _send_email(
             log.warning("email_smtp_error", to=to_email, error=str(exc))
             # fall through to Resend
 
-    # ── 3. Resend (HTTPS, no port-blocking on Railway) ─────────────────────────
+    # ── 3. Resend (HTTPS, no SMTP port restrictions) ───────────────────────────
     if settings.RESEND_API_KEY:
         try:
             import httpx as _httpx

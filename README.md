@@ -314,15 +314,21 @@ See [docs/connectors.md](docs/connectors.md) for copy-paste config snippets for 
 
 ## Deployment
 
-### Railway (recommended)
+### Railway (recommended, zero-cost setup)
 
-NeuraShield is pre-wired for Railway's managed Postgres and Redis.
+NeuraShield deploys as a Railway project (backend API + background worker + frontend), backed by external free-tier managed Postgres ([Neon](https://neon.tech)) and Redis ([Upstash](https://upstash.com)) — this keeps everything on free tiers with no card required anywhere.
 
 1. **Fork** this repository
-2. In Railway, create a new project → **Deploy from GitHub repo** → select your fork
-3. Add a **PostgreSQL** service and a **Redis** service to the project
-4. Set all required environment variables (copy from `backend/.env.example`)
-5. Railway auto-detects the `Dockerfile`, builds on every push to `main`, and runs `alembic upgrade head` on deploy
+2. Create a free [Neon](https://neon.tech) Postgres project and an [Upstash](https://upstash.com) Redis database; copy both connection strings
+3. In [Railway](https://railway.app), create a new project → **Deploy from GitHub repo** → select your fork
+4. Add three services from the same repo, each with its own **Root Directory** / Dockerfile:
+   - **backend** — `backend/Dockerfile`, runs `./start.sh` (applies migrations, then starts uvicorn; runs the worker in-process when `RUN_WORKER_INLINE=true`)
+   - **worker** — `backend/Dockerfile` with `WORKER_MODE=true` (skip if running the worker in-process on the backend service instead, to stay within a single free service)
+   - **frontend** — `frontend/Dockerfile`
+5. Set `DATABASE_URL` / `REDIS_URL` to the Neon/Upstash connection strings on every backend/worker service, plus `JWT_SECRET` / `JWT_REFRESH_SECRET` (generate each with `openssl rand -hex 64`, must differ), `FRONTEND_URL`, and `ALLOWED_ORIGINS`
+6. Every push to `main` auto-deploys once GitHub is connected
+
+**Cost note:** Railway's free tier is credit-based (a small monthly allowance) — once it's used up, services pause until the next cycle. Running the worker in-process on the backend service (`RUN_WORKER_INLINE=true`) instead of as a separate service roughly halves credit burn if you're on the free tier.
 
 ### Self-hosted (Docker)
 

@@ -49,7 +49,7 @@ async def readiness() -> JSONResponse:
         all_healthy = False
 
     # Worker liveness — True if the worker process has pinged Redis in the last 120 s.
-    # False means the Railway Worker service is down; events pile up in Redis unprocessed.
+    # False means the background Worker service is down; events pile up in Redis unprocessed.
     worker_ok = False
     if redis_ok:
         try:

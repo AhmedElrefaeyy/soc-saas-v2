@@ -3,7 +3,7 @@
 All connectors use the same endpoint pattern:
 
 ```
-POST https://backend-production-a9cb4.up.railway.app/api/v1/connectors/{source}/ingest
+POST https://your-backend.up.railway.app/api/v1/connectors/{source}/ingest
 X-API-Key: <your-api-key>
 Content-Type: application/json
 ```
@@ -33,7 +33,7 @@ alert = json.loads(alert_file.read())
 alert_file.close()
 
 API_KEY = "ns_your_api_key_here"
-URL = "https://backend-production-a9cb4.up.railway.app/api/v1/connectors/wazuh/ingest"
+URL = "https://your-backend.up.railway.app/api/v1/connectors/wazuh/ingest"
 
 requests.post(URL, json=alert, headers={"X-API-Key": API_KEY}, timeout=10)
 ```
@@ -84,7 +84,7 @@ outputs:
   - eve-log:
       enabled: yes
       filetype: http
-      url: https://backend-production-a9cb4.up.railway.app/api/v1/connectors/suricata/ingest
+      url: https://your-backend.up.railway.app/api/v1/connectors/suricata/ingest
       extra-headers:
         X-API-Key: "ns_your_api_key_here"
       types:
@@ -102,7 +102,7 @@ If using Filebeat to ship `/var/log/suricata/eve.json`:
 ```yaml
 # filebeat.yml
 output.http:
-  hosts: ["https://backend-production-a9cb4.up.railway.app"]
+  hosts: ["https://your-backend.up.railway.app"]
   path: "/api/v1/connectors/suricata/ingest"
   headers:
     X-API-Key: "ns_your_api_key_here"
@@ -138,7 +138,7 @@ output.http:
 1. Go to **Microsoft Defender Security Center** → Settings → Notifications
 2. Create a custom connector pointing to:
    ```
-   POST https://backend-production-a9cb4.up.railway.app/api/v1/connectors/defender/ingest
+   POST https://your-backend.up.railway.app/api/v1/connectors/defender/ingest
    X-API-Key: ns_your_api_key_here
    ```
 3. Select alert severity levels to forward (Informational, Low, Medium, High, Critical)
@@ -150,7 +150,7 @@ In your Logic App, add an HTTP action after the Defender alert trigger:
 ```json
 {
   "method": "POST",
-  "uri": "https://backend-production-a9cb4.up.railway.app/api/v1/connectors/defender/ingest",
+  "uri": "https://your-backend.up.railway.app/api/v1/connectors/defender/ingest",
   "headers": {
     "X-API-Key": "ns_your_api_key_here",
     "Content-Type": "application/json"
@@ -194,7 +194,7 @@ module(load="omhttp")
 
 action(
   type="omhttp"
-  server="backend-production-a9cb4.up.railway.app"
+  server="your-backend.up.railway.app"
   serverport="443"
   useHttps="on"
   template="RSYSLOG_SyslogProtocol23Format"
@@ -209,7 +209,7 @@ Restart: `systemctl restart rsyslog`
 
 ```bash
 curl -X POST \
-  https://backend-production-a9cb4.up.railway.app/api/v1/connectors/syslog/ingest \
+  https://your-backend.up.railway.app/api/v1/connectors/syslog/ingest \
   -H "X-API-Key: ns_your_api_key_here" \
   -H "Content-Type: text/plain" \
   --data '<134>Jan  1 00:00:00 myhost sshd[1234]: Failed password for root from 1.2.3.4 port 54321 ssh2'
@@ -219,7 +219,7 @@ curl -X POST \
 
 ```bash
 curl -X POST \
-  https://backend-production-a9cb4.up.railway.app/api/v1/connectors/syslog/ingest \
+  https://your-backend.up.railway.app/api/v1/connectors/syslog/ingest \
   -H "X-API-Key: ns_your_api_key_here" \
   -H "Content-Type: application/json" \
   --data '{"message": "<134>Jan 1 00:00:00 myhost sshd[1234]: Failed password for root"}'
@@ -233,7 +233,7 @@ Use this for any custom source — scripts, alerting tools, SIEM exports.
 
 ```bash
 curl -X POST \
-  https://backend-production-a9cb4.up.railway.app/api/v1/connectors/generic/ingest \
+  https://your-backend.up.railway.app/api/v1/connectors/generic/ingest \
   -H "X-API-Key: ns_your_api_key_here" \
   -H "Content-Type: application/json" \
   --data '{
@@ -273,7 +273,7 @@ Check that events appear in the Events page, or test the endpoint directly:
 ```bash
 # Should return {"data": {"accepted": 1, "rejected": 0, "source_type": "generic"}}
 curl -X POST \
-  https://backend-production-a9cb4.up.railway.app/api/v1/connectors/generic/ingest \
+  https://your-backend.up.railway.app/api/v1/connectors/generic/ingest \
   -H "X-API-Key: ns_your_api_key_here" \
   -H "Content-Type: application/json" \
   --data '{"hostname":"test","category":"auth","severity":2,"message":"test event"}'

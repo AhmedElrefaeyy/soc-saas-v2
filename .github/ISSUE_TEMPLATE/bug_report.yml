@@ -70,7 +70,7 @@ body:
       description: Fill in the relevant fields.
       value: |
         - NeuraShield version / commit:
-        - Deployment: [ ] Docker Compose  [ ] Railway  [ ] Self-hosted
+        - Deployment: [ ] Docker Compose  [ ] Render  [ ] Railway  [ ] Self-hosted
         - OS:
         - Browser (if UI issue):
         - Python version (if backend):

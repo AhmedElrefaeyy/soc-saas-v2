@@ -81,6 +81,9 @@ const NAV: DocSection[] = [
     id: 'notifications', label: 'Notifications', icon: Bell,
   },
   {
+    id: 'connectors', label: 'Connectors', icon: Globe,
+  },
+  {
     id: 'reports', label: 'Reports', icon: BarChart3,
   },
   {
@@ -209,7 +212,7 @@ function DocContent() {
       </DocP>
       <DocP>
         Unlike traditional SIEMs that require months of rule tuning and manual investigation, NEURASHIELD works
-        automatically from day one: 80+ detection rules fire, threat intelligence enriches every event, behavioral
+        automatically from day one: 110+ detection rules fire, threat intelligence enriches every event, behavioral
         baselines self-calibrate, and attack chains correlate across multiple alerts — all without configuration.
       </DocP>
 
@@ -217,13 +220,14 @@ function DocContent() {
       <Table
         headers={['Capability', 'Description']}
         rows={[
-          ['AI Detection Engine', '80+ native rules + Sigma YAML + UEBA, real-time evaluation'],
+          ['AI Detection Engine', '110+ rules across native, Sigma YAML, and UEBA layers, real-time evaluation'],
           ['Attack Chain Correlator', '12 multi-stage attack patterns detected automatically'],
-          ['Threat Intelligence', 'Live AbuseIPDB (IP) + MalwareBazaar (hash) enrichment'],
+          ['Threat Intelligence', 'Live IP reputation (AbuseIPDB, AlienVault OTX, VirusTotal) + MalwareBazaar hash enrichment'],
           ['UEBA Analytics', 'Per-user behavioral baselines, anomaly scoring'],
           ['AI Copilot', 'Natural-language investigation assistant'],
           ['Auto IR Playbooks', 'AI-generated response playbooks on every HIGH/CRITICAL alert'],
           ['Real-time Notifications', 'Slack, Teams, PagerDuty, Email, Webhooks'],
+          ['Connectors', 'Ingest external telemetry from Wazuh, Suricata, Microsoft Defender ATP, Syslog, or any custom source'],
           ['Reports', 'Executive and operational security reports'],
         ]}
       />
@@ -236,16 +240,20 @@ function DocContent() {
       <Table
         headers={['Component', 'Requirement']}
         rows={[
-          ['Windows Agent', 'Windows 10 / Server 2016 or later, Python 3.8+'],
-          ['Linux Agent',   'Ubuntu 20.04+, Debian 10+, RHEL 8+, Python 3.8+'],
+          ['Windows Agent', 'Windows 10 / Server 2016 or later'],
           ['Sysmon (optional)', 'Sysmon v15+ for process creation and network event enrichment'],
-          ['Backend',       'No local server required — cloud-hosted on Railway'],
+          ['Linux / other sources', 'Ingested via the Connector API (Syslog, Wazuh, Suricata, Microsoft Defender ATP, generic webhook) — no native installed agent yet'],
+          ['Backend',       'No local server required — fully cloud-hosted'],
           ['Browser',       'Chrome, Firefox, Edge (modern versions)'],
         ]}
       />
       <Callout type="tip">
         Install Sysmon on Windows endpoints for richer process telemetry (parent process, command-line args,
         network connections). Without Sysmon, basic Windows Event Log data is still collected and many rules still fire.
+      </Callout>
+      <Callout type="warn">
+        A native Linux endpoint agent is not yet available. To bring in Linux or third-party telemetry today, forward
+        logs to the Connector API (see Notifications/Integrations) using the Syslog, Wazuh, Suricata, or Defender parser.
       </Callout>
 
       <DocH3 id="qs-account">Step 1 — Create Your Account</DocH3>
@@ -265,17 +273,11 @@ function DocContent() {
         generates a one-line installer command pre-populated with your tenant credentials.
       </DocP>
       <CodeBlock lang="powershell">{`# Windows — run as Administrator in PowerShell
-Invoke-WebRequest -Uri "https://your-platform/api/agents/installer/download" \`
-  -Headers @{ "X-Tenant-ID" = "your-tenant-id" } \`
-  -OutFile "neurashield-setup.exe"
-.\\neurashield-setup.exe`}</CodeBlock>
-      <CodeBlock lang="bash">{`# Linux — run as root
-curl -sSL https://your-platform/api/agents/installer/download \\
-  -H "X-Tenant-ID: your-tenant-id" | sudo bash`}</CodeBlock>
+irm https://your-platform/api/v1/installer/bootstrap.ps1 -OutFile bootstrap.ps1
+.\\bootstrap.ps1 -TenantId "your-tenant-id"`}</CodeBlock>
       <DocP>
-        The installer copies the agent to <code className="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded text-xs">C:\ProgramData\SOCAnalyst\</code> on
-        Windows or <code className="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded text-xs">/opt/soc-analyst/</code> on Linux,
-        stores your encrypted credentials, and registers the agent as a system service that starts automatically.
+        The installer copies the agent to <code className="text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded text-xs">C:\ProgramData\SOCAnalyst\</code>,
+        stores your encrypted credentials, and registers it as a Windows service that starts automatically.
       </DocP>
 
       <DocH3 id="qs-verify">Step 3 — Verify Detection</DocH3>
@@ -363,16 +365,16 @@ curl -sSL https://your-platform/api/agents/installer/download \\
       {/* ── Detection Rules ───────────────────────────────────────────────── */}
       <DocH2 id="detection">Detection Rules</DocH2>
       <DocP>
-        NEURASHIELD ships with 80 rules across four types. All rules are enabled by default for every new tenant.
+        NEURASHIELD ships with 110 rules across four types. All rules are enabled by default for every new tenant.
         Navigate to <strong className="text-tx-1">Rules</strong> in the sidebar to manage them.
       </DocP>
       <Table
         headers={['Type', 'Count', 'How it works']}
         rows={[
-          ['Native Pattern', '74', 'Field-level conditions evaluated against every normalized event'],
+          ['Native Pattern', '70', 'Field-level conditions evaluated against every normalized event'],
+          ['Threshold', '10', 'Count-based rules: X events within Y seconds triggers an alert'],
           ['Sigma YAML', '24', 'Open-standard Sigma rules compiled into condition trees'],
           ['UEBA', '6', 'Statistical anomaly rules against per-user behavioral baselines'],
-          ['Threshold', '6', 'Count-based rules: X events within Y seconds triggers an alert'],
         ]}
       />
 
@@ -422,17 +424,17 @@ tags:
       <DocH3 id="det-ueba">UEBA Rules</DocH3>
       <DocP>
         UEBA rules fire when the UEBA engine flags a behavioral anomaly. The engine builds per-user baselines
-        over a 14-day rolling window and scores deviations.
+        and scores deviations across 14 behavioral flags, including insider-threat signals.
       </DocP>
       <Table
         headers={['UEBA Rule', 'Trigger']}
         rows={[
-          ['Impossible Travel',        'Login from two locations impossible within the time gap'],
-          ['Off-Hours Login',          'Login significantly outside the user\'s normal hours'],
-          ['New Country Login',        'First login ever from a new country for this user'],
-          ['High Volume Data Access',  'File/DB reads > 3× the user\'s 14-day average'],
-          ['Privilege Spike',          'Sudden use of admin privileges not seen in baseline'],
-          ['Anomaly Score Threshold',  'UEBA composite score exceeds the configured threshold'],
+          ['UEBA Strong Behavioral Anomaly',                    'Composite anomaly score ≥ 0.80 — significant deviation from baseline'],
+          ['UEBA Critical Attack Chain - Impossible Travel',     'Authentication from two geographically distant locations within an impossible timeframe'],
+          ['UEBA Critical Attack Chain - Brute Force Success',   'Successful authentication immediately following multiple failed attempts'],
+          ['UEBA Lateral Movement Detected',                     'Entity accessing multiple systems significantly beyond its normal baseline'],
+          ['UEBA Off-Hours Access Anomaly',                      'Significant access outside the entity\'s normal working hours (score ≥ 0.60)'],
+          ['UEBA Confirmed Threat IP Behavioral Anomaly',        'Communication with a confirmed malicious IP combined with a behavioral anomaly'],
         ]}
       />
 
@@ -501,13 +503,16 @@ tags:
       <DocH2 id="threat-intel">Threat Intelligence</DocH2>
       <DocP>
         Every event is automatically enriched with live threat intelligence before hitting the detection engine.
-        No API keys are required — NEURASHIELD uses free-tier APIs with built-in circuit breakers and Redis caching.
+        As a hosted platform, NEURASHIELD centrally manages the API keys for all providers — you don't need to
+        bring your own. Lookups run through built-in circuit breakers and Redis caching to stay fast and resilient.
       </DocP>
       <Table
         headers={['Source', 'What it checks', 'Cache TTL']}
         rows={[
-          ['AbuseIPDB',     'IP reputation score (0–100) for all source/destination IPs', '24 hours positive, 1 hour negative'],
-          ['MalwareBazaar', 'SHA-256 hash of files detected by FIM or Sysmon event 11',  '24 hours positive, 1 hour negative'],
+          ['AbuseIPDB',      'IP reputation score (0–100) for all source/destination IPs', '24 hours positive, 1 hour negative'],
+          ['AlienVault OTX', 'Community threat-pulse data for source/destination IPs', '6 hours'],
+          ['VirusTotal',     'Multi-engine IP/file reputation lookups', '1 hour'],
+          ['MalwareBazaar',  'SHA-256 hash of files detected by FIM or Sysmon event 11', '24 hours positive, 1 hour negative'],
         ]}
       />
       <DocP>
@@ -673,6 +678,32 @@ tags:
         for the same alert in parallel.
       </Callout>
 
+      {/* ── Connectors ────────────────────────────────────────────────────── */}
+      <DocH2 id="connectors">Connectors</DocH2>
+      <DocP>
+        Beyond the native Windows agent, NEURASHIELD accepts external telemetry through a REST ingestion API —
+        useful for bringing in existing security tools or non-Windows hosts. Generate an API key from
+        <strong className="text-tx-1"> Settings → API Keys</strong>, then POST events to:
+      </DocP>
+      <CodeBlock lang="bash">{`POST https://your-backend/api/v1/connectors/{source}/ingest
+X-API-Key: <your-api-key>
+Content-Type: application/json`}</CodeBlock>
+      <Table
+        headers={['Source', 'Use case']}
+        rows={[
+          ['wazuh',    'Forward Wazuh manager alerts via its Custom Integration module'],
+          ['suricata', 'Forward Suricata EVE JSON alerts (eve-http output or Filebeat)'],
+          ['defender', 'Forward Microsoft Defender ATP alerts via Logic Apps / Sentinel'],
+          ['syslog',   'Forward raw or JSON-wrapped syslog lines (rsyslog omhttp or direct HTTP)'],
+          ['generic',  'Any custom source — scripts, alerting tools, other SIEM exports'],
+          ['webhook',  'Alias for generic — accepts the same payload shape'],
+        ]}
+      />
+      <DocP>
+        Ingested events are normalized into the same schema as agent-collected events, so they flow through the
+        same detection, UEBA, and attack-chain pipeline.
+      </DocP>
+
       {/* ── Reports ───────────────────────────────────────────────────────── */}
       <DocH2 id="reports">Reports</DocH2>
       <DocP>
@@ -723,11 +754,6 @@ tags:
 sc stop SOCAnalystAgent
 sc delete SOCAnalystAgent
 Remove-Item -Recurse -Force "C:\\ProgramData\\SOCAnalyst"`}</CodeBlock>
-      <CodeBlock lang="bash">{`# Linux
-sudo systemctl stop soc-analyst
-sudo systemctl disable soc-analyst
-sudo rm -rf /opt/soc-analyst /etc/systemd/system/soc-analyst.service
-sudo systemctl daemon-reload`}</CodeBlock>
 
       {/* ── Team & Roles ──────────────────────────────────────────────────── */}
       <DocH2 id="team">Team & Roles</DocH2>
@@ -738,6 +764,7 @@ sudo systemctl daemon-reload`}</CodeBlock>
       <Table
         headers={['Role', 'Capabilities']}
         rows={[
+          ['Owner',   'Everything in Admin, plus tenant deletion and ownership transfer'],
           ['Admin',   'Full access: manage team, rules, integrations, and all SOC features'],
           ['Analyst', 'All SOC features: alerts, investigations, hunting, copilot, playbooks, reports'],
           ['Viewer',  'Read-only: view alerts, dashboard, and reports — no triage or rule editing'],

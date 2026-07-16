@@ -242,8 +242,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Deploy to Railway (staging)
+        # Railway auto-deploys on push once the repo is connected in the dashboard.
+        # This hook is only needed to force a deploy from CI — create one per
+        # service under Railway → Settings → Deploy Triggers / Webhooks, then set
+        # RAILWAY_DEPLOY_HOOK_URL as a repo/environment secret.
         run: |
-          echo "Deploy to Railway staging environment"
-          # railway up --environment staging
+          if [ -z "$RAILWAY_DEPLOY_HOOK_URL" ]; then
+            echo "RAILWAY_DEPLOY_HOOK_URL not set — skipping (Railway auto-deploys on push)"
+            exit 0
+          fi
+          curl -fsS -X POST "$RAILWAY_DEPLOY_HOOK_URL"
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_DEPLOY_HOOK_URL: ${{ secrets.RAILWAY_DEPLOY_HOOK_URL }}

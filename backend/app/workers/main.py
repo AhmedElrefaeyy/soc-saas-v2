@@ -128,7 +128,7 @@ WORKER_LIVENESS_TTL = 120  # seconds — 2× the ping interval
 async def _worker_liveness_loop(stop_event: asyncio.Event) -> None:
     """Writes a heartbeat key to Redis every 60 s with a 120 s TTL.
     If the worker crashes the key expires and the API health endpoint reports
-    worker=false, making the problem immediately visible without checking Railway logs.
+    worker=false, making the problem immediately visible without checking the host's logs.
     """
     redis = redis_manager.get_client()
     while not stop_event.is_set():
@@ -165,8 +165,10 @@ def _start_health_server() -> None:
     """Start a stdlib HTTP health server in a daemon thread.
 
     Runs outside the asyncio event loop so it stays responsive even when
-    the event loop is busy during startup or heavy processing.
-    Railway health-checks this endpoint to decide if the deploy succeeded.
+    the event loop is busy during startup or heavy processing. Some PaaS
+    providers (e.g. Railway) health-check this endpoint to decide if the
+    deploy succeeded; Render's background workers don't probe it, but it's
+    harmless to keep running for manual/local checks.
     """
     port = int(os.environ.get("PORT", "8000"))
     try:

@@ -9,7 +9,7 @@ fi
 
 echo "[startup] ── Database schema ────────────────────────────────────────"
 
-# Attempt 1: standard alembic migration path (works on clean Railway DBs)
+# Attempt 1: standard alembic migration path (works on clean managed DBs)
 if alembic upgrade head 2>&1; then
     echo "[startup] Migrations applied via alembic."
 else
@@ -22,8 +22,14 @@ else
         echo "[startup] Schema ready via ensure_schema."
     else
         echo "[startup] WARNING: schema setup failed — server starting anyway."
-        echo "[startup] Some endpoints may return 500. Check Railway Deploy Logs."
+        echo "[startup] Some endpoints may return 500. Check the Railway service logs."
     fi
+fi
+
+if [ "${RUN_WORKER_INLINE:-false}" = "true" ]; then
+    echo "[startup] ── Starting background worker in-process (RUN_WORKER_INLINE=true) ──"
+    echo "[startup] Runs API + worker in one container to avoid a second paid service."
+    python -m app.workers.main &
 fi
 
 echo "[startup] ── Starting uvicorn ──────────────────────────────────────"
