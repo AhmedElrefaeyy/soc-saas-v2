@@ -66,36 +66,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     BUILD_INFO.info({"version": settings.APP_VERSION, "environment": settings.ENVIRONMENT})
 
-    # ── Run Alembic migrations on every startup ────────────────────────────
-    # Safe: alembic upgrade head is idempotent — no-op when schema is current.
-    # Runs in a thread executor so the async event loop is not blocked.
-    import asyncio
-    import os
-
-    from alembic import command as alembic_command
-    from alembic.config import Config
-
-    logger.info("running_database_migrations")
-    try:
-        _ini_path = os.path.join(os.path.dirname(__file__), "..", "alembic.ini")
-        _alembic_cfg = Config(os.path.normpath(_ini_path))
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None,
-            lambda: alembic_command.upgrade(_alembic_cfg, "head"),
-        )
-        logger.info("database_migrations_complete")
-    except Exception as migration_err:
-        logger.error(
-            "database_migration_failed",
-            error=str(migration_err),
-            error_type=type(migration_err).__name__,
-        )
-        # A failed migration means the DB schema is in an unknown state.
-        # Starting the app would risk data corruption or silent API errors,
-        # so we abort startup here to surface the failure immediately.
-        raise
-    # ──────────────────────────────────────────────────────────────────────
+    # Migrations run once in start.sh before this process starts (with its own
+    # ensure_schema fallback). Running alembic again here raced against that
+    # shell-level run and corrupted the schema (duplicate enum/table creation),
+    # so this process no longer touches migrations at all.
 
     await database_manager.initialize()
 
