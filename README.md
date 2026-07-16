@@ -32,7 +32,7 @@
 ## Brand
 
 <div align="center">
-<img src="docs/assets/logo-construction.png" alt="NeuraShield logo construction" width="640" />
+<img src="docs/assets/logo-construction.png" alt="NeuraShield logo construction" width="420" />
 </div>
 
 ---
